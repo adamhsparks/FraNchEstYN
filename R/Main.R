@@ -1240,9 +1240,7 @@ franchestyn <- function(
   file.remove(list_files_out)
 
   # ---- BUILD RESULT (plots + tables + outputs + updated parameters) -----------
-  if (!exists("result")) {
-    result <- list()
-  }
+  result <- list()
   result$outputs$simulation <- outputs_df
   result$outputs$summary <- summary_df
   result$diagnostics$metrics <- metrics_df
@@ -1540,9 +1538,6 @@ franchestyn <- function(
     )
 
     ## ---- expose in result ---------------------------------------------------
-    if (!exists("result")) {
-      result <- list()
-    }
     result$diagnostics$calibration <- list(
       tables = list(crop = crop_dat, disease = disease_dat),
       plots = list(crop = crop_plot, disease = disease_plot)
@@ -1562,736 +1557,354 @@ franchestyn <- function(
 
   # --- OPTIONAL SPOOKY MESSAGE ---------------------------------------------
   if (isTRUE(franchy_message)) {
-    tryCatch({
-      # ---------------- personality setup ----------------
-      personality <- match.arg(
-        personality,
-        choices = c("scientist", "extensionist", "farmer")
-      )
-
-      system_role <- switch(
-        personality,
-        "scientist" = "You are a concise agrometeorology & plant pathology scientist. Neutral, precise, scientific. Use mm/dd dates, no DOY, no emojis.",
-        "extensionist" = "You are a farm advisor. Be clear, supportive, and practical. Use mm/dd dates, no jargon, no emojis.",
-        "farmer" = "You are a seasoned farmer. Use simple words, warm tone, and memorable phrasing. Use mm/dd dates, no DOY, no emojis."
-      )
-
-      # ---------------- helpers ----------------
-      safe_mean <- function(x, k = 1) round(mean(x, na.rm = TRUE), k)
-      safe_round <- function(x, k = 1) if (is.null(x)) NA_real_ else round(x, k)
-      .parse_output_date <- function(x) {
-        as.Date(x, tryFormats = c("%m/%d/%Y", "%Y-%m-%d"))
-      }
-      .year_doy_to_date <- function(year, doy) {
-        y <- suppressWarnings(as.integer(year))
-        d <- suppressWarnings(as.integer(doy))
-        as.Date(d - 1L, origin = sprintf("%04d-01-01", y))
-      }
-      fmt_mmdd <- function(dates) {
-        ifelse(is.na(dates), NA_character_, format(as.Date(dates), "%m/%d"))
-      }
-      .find_doy_col <- function(df) {
-        nms <- names(df)
-        i <- which(tolower(nms) %in% c("doy", "dayofyear"))[1]
-        if (is.na(i)) {
-          stop("DOY column not found.", call. = FALSE)
-        }
-        nms[i]
-      }
-
-      mmdd_to_date <- function(mmdd, ref_year = 2001) {
-        x <- ifelse(is.na(mmdd) | mmdd == "", NA_character_, mmdd)
-        y <- paste0(
-          ref_year,
-          "-",
-          sub("^([0-9]{1,2})/([0-9]{1,2})$", "\\1-\\2", x)
+    tryCatch(
+      {
+        # ---------------- personality setup ----------------
+        personality <- match.arg(
+          personality,
+          choices = c("scientist", "extensionist", "farmer")
         )
-        suppressWarnings(as.Date(y, format = "%Y-%m-%d"))
-      }
-      median_mmdd_from_dates <- function(dates) {
-        dates <- as.Date(dates)
-        if (!length(dates) || all(is.na(dates))) {
-          return(NA_character_)
-        }
-        doy <- as.integer(strftime(dates, "%j"))
-        med <- stats::median(doy, na.rm = TRUE)
-        if (is.na(med)) {
-          return(NA_character_)
-        }
-        format(as.Date(med - 1L, origin = "2001-01-01"), "%m/%d")
-      }
 
-      # Robust epidemic phases using TRUE calendar dates
-      # - If a valid Date column exists, use it
-      # - Otherwise, reconstruct Date per row using Year + DOY
-      detect_epidemic_phases_dates <- function(df_daily) {
-        if (!nrow(df_daily)) {
-          return(data.frame(
-            GrowingSeason = integer(),
-            onset_date = character(),
-            rapid_date = character(),
-            peak_date = character(),
-            onset_doy = integer(),
-            rapid_doy = integer(),
-            peak_doy = integer(),
-            peak_sev = numeric(),
-            stringsAsFactors = FALSE
-          ))
-        }
+        system_role <- switch(
+          personality,
+          "scientist" = "You are a concise agrometeorology & plant pathology scientist. Neutral, precise, scientific. Use mm/dd dates, no DOY, no emojis.",
+          "extensionist" = "You are a farm advisor. Be clear, supportive, and practical. Use mm/dd dates, no jargon, no emojis.",
+          "farmer" = "You are a seasoned farmer. Use simple words, warm tone, and memorable phrasing. Use mm/dd dates, no DOY, no emojis."
+        )
 
-        # Parse/construct Date
-        if ("Date" %in% names(df_daily)) {
-          Dcol <- .parse_output_date(df_daily$Date)
-        } else {
-          Dcol <- as.Date(NA)
+        # ---------------- helpers ----------------
+        safe_mean <- function(x, k = 1) round(mean(x, na.rm = TRUE), k)
+        safe_round <- function(x, k = 1) {
+          if (is.null(x)) NA_real_ else round(x, k)
         }
-        if (all(is.na(Dcol))) {
-          doy_col <- .find_doy_col(df_daily)
-          if (!all(c("Year", doy_col) %in% names(df_daily))) {
-            stop(
-              "Need either a valid 'Date' column or both 'Year' and 'DOY' columns.",
-              call. = FALSE
-            )
+        .parse_output_date <- function(x) {
+          as.Date(x, tryFormats = c("%m/%d/%Y", "%Y-%m-%d"))
+        }
+        .year_doy_to_date <- function(year, doy) {
+          y <- suppressWarnings(as.integer(year))
+          d <- suppressWarnings(as.integer(doy))
+          as.Date(d - 1L, origin = sprintf("%04d-01-01", y))
+        }
+        fmt_mmdd <- function(dates) {
+          ifelse(is.na(dates), NA_character_, format(as.Date(dates), "%m/%d"))
+        }
+        .find_doy_col <- function(df) {
+          nms <- names(df)
+          i <- which(tolower(nms) %in% c("doy", "dayofyear"))[1]
+          if (is.na(i)) {
+            stop("DOY column not found.", call. = FALSE)
           }
-          Dcol <- .year_doy_to_date(df_daily$Year, df_daily[[doy_col]])
+          nms[i]
         }
 
-        tmp <- df_daily
-        tmp$.Date <- Dcol
-
-        daily <- tmp |>
-          dplyr::group_by(GrowingSeason, .Date) |>
-          dplyr::summarise(
-            sev = mean(DiseaseSeverity, na.rm = TRUE),
-            .groups = "drop"
-          ) |>
-          dplyr::arrange(GrowingSeason, .Date)
-
-        phases_base <- daily |>
-          dplyr::group_by(GrowingSeason) |>
-          dplyr::mutate(
-            sev_max = max(sev, na.rm = TRUE),
-            sev_norm = dplyr::if_else(sev_max > 0, sev / sev_max, 0),
-            sev_diff = sev - dplyr::lag(sev),
-            has_epi = sev_max > 0
-          ) |>
-          dplyr::summarise(
-            has_epi = any(has_epi),
-            onset_idx = {
-              if (!has_epi[1]) {
-                NA_integer_
-              } else {
-                ii <- which(sev_norm >= 0.05)
-                if (length(ii)) ii[1] else NA_integer_
-              }
-            },
-            rapid_idx = {
-              if (!has_epi[1]) {
-                NA_integer_
-              } else {
-                dd <- replace(sev_diff, is.na(sev_diff), -Inf)
-                if (all(!is.finite(dd))) NA_integer_ else which.max(dd)
-              }
-            },
-            peak_idx = {
-              if (!has_epi[1]) {
-                NA_integer_
-              } else {
-                if (all(is.na(sev))) NA_integer_ else which.max(sev)
-              }
-            },
-            peak_sev = if (!has_epi[1]) 0 else max(sev, na.rm = TRUE) * 100,
-            .groups = "drop"
+        mmdd_to_date <- function(mmdd, ref_year = 2001) {
+          x <- ifelse(is.na(mmdd) | mmdd == "", NA_character_, mmdd)
+          y <- paste0(
+            ref_year,
+            "-",
+            sub("^([0-9]{1,2})/([0-9]{1,2})$", "\\1-\\2", x)
           )
-
-        # Map indices back to dates/DOYs; return NA when no epidemic
-        out <- phases_base |>
-          dplyr::rowwise() |>
-          dplyr::mutate(
-            onset_date = {
-              if (!has_epi || is.na(onset_idx)) {
-                NA_character_
-              } else {
-                s <- daily[daily$GrowingSeason == GrowingSeason, , drop = FALSE]
-                if (onset_idx > nrow(s)) {
-                  NA_character_
-                } else {
-                  fmt_mmdd(s$.Date[onset_idx])
-                }
-              }
-            },
-            rapid_date = {
-              if (!has_epi || is.na(rapid_idx)) {
-                NA_character_
-              } else {
-                s <- daily[daily$GrowingSeason == GrowingSeason, , drop = FALSE]
-                if (rapid_idx > nrow(s)) {
-                  NA_character_
-                } else {
-                  fmt_mmdd(s$.Date[rapid_idx])
-                }
-              }
-            },
-            peak_date = {
-              if (!has_epi || is.na(peak_idx)) {
-                NA_character_
-              } else {
-                s <- daily[daily$GrowingSeason == GrowingSeason, , drop = FALSE]
-                if (peak_idx > nrow(s)) {
-                  NA_character_
-                } else {
-                  fmt_mmdd(s$.Date[peak_idx])
-                }
-              }
-            },
-            onset_doy = {
-              if (!has_epi || is.na(onset_idx)) {
-                NA_integer_
-              } else {
-                s <- daily[daily$GrowingSeason == GrowingSeason, , drop = FALSE]
-                if (onset_idx > nrow(s)) {
-                  NA_integer_
-                } else {
-                  as.integer(strftime(s$.Date[onset_idx], "%j"))
-                }
-              }
-            },
-            rapid_doy = {
-              if (!has_epi || is.na(rapid_idx)) {
-                NA_integer_
-              } else {
-                s <- daily[daily$GrowingSeason == GrowingSeason, , drop = FALSE]
-                if (rapid_idx > nrow(s)) {
-                  NA_integer_
-                } else {
-                  as.integer(strftime(s$.Date[rapid_idx], "%j"))
-                }
-              }
-            },
-            peak_doy = {
-              if (!has_epi || is.na(peak_idx)) {
-                NA_integer_
-              } else {
-                s <- daily[daily$GrowingSeason == GrowingSeason, , drop = FALSE]
-                if (peak_idx > nrow(s)) {
-                  NA_integer_
-                } else {
-                  as.integer(strftime(s$.Date[peak_idx], "%j"))
-                }
-              }
-            }
-          ) |>
-          dplyr::ungroup() |>
-          dplyr::select(-has_epi)
-
-        out
-      }
-
-      # First treatment per season as DATE STRING and timing class vs onset
-      first_treatment_dates <- function(management_data, seasons, phases_df) {
-        tr_cols <- grep(
-          "^treatment_\\d+$",
-          names(management_data),
-          value = TRUE,
-          ignore.case = TRUE
-        )
-        if (!length(tr_cols)) {
-          return(data.frame(
-            GrowingSeason = seasons,
-            first_spray_date = NA_character_,
-            timing_class = NA_character_
-          ))
+          suppressWarnings(as.Date(y, format = "%Y-%m-%d"))
         }
-        tr_cols <- tr_cols[order(as.integer(sub(
-          "^treatment_(\\d+)$",
-          "\\1",
-          tr_cols
-        )))]
-
-        out <- lapply(seasons, function(yr) {
-          row_idx <- integer(0)
-          if ("year" %in% names(management_data)) {
-            ychar <- as.character(management_data$year)
-            row_idx <- which(ychar == as.character(yr))
-            if (!length(row_idx)) row_idx <- which(tolower(ychar) == "all")
+        median_mmdd_from_dates <- function(dates) {
+          dates <- as.Date(dates)
+          if (!length(dates) || all(is.na(dates))) {
+            return(NA_character_)
           }
-          if (!length(row_idx)) {
-            row_idx <- 1L
+          doy <- as.integer(strftime(dates, "%j"))
+          med <- stats::median(doy, na.rm = TRUE)
+          if (is.na(med)) {
+            return(NA_character_)
           }
-          row_idx <- row_idx[1]
+          format(as.Date(med - 1L, origin = "2001-01-01"), "%m/%d")
+        }
 
-          t_doys <- suppressWarnings(as.numeric(unlist(management_data[
-            row_idx,
-            tr_cols,
-            drop = FALSE
-          ])))
-          t_doys <- t_doys[!is.na(t_doys)]
-          if (!length(t_doys)) {
+        # Robust epidemic phases using TRUE calendar dates
+        # - If a valid Date column exists, use it
+        # - Otherwise, reconstruct Date per row using Year + DOY
+        detect_epidemic_phases_dates <- function(df_daily) {
+          if (!nrow(df_daily)) {
             return(data.frame(
-              GrowingSeason = yr,
+              GrowingSeason = integer(),
+              onset_date = character(),
+              rapid_date = character(),
+              peak_date = character(),
+              onset_doy = integer(),
+              rapid_doy = integer(),
+              peak_doy = integer(),
+              peak_sev = numeric(),
+              stringsAsFactors = FALSE
+            ))
+          }
+
+          # Parse/construct Date
+          if ("Date" %in% names(df_daily)) {
+            Dcol <- .parse_output_date(df_daily$Date)
+          } else {
+            Dcol <- as.Date(NA)
+          }
+          if (all(is.na(Dcol))) {
+            doy_col <- .find_doy_col(df_daily)
+            if (!all(c("Year", doy_col) %in% names(df_daily))) {
+              stop(
+                "Need either a valid 'Date' column or both 'Year' and 'DOY' columns.",
+                call. = FALSE
+              )
+            }
+            Dcol <- .year_doy_to_date(df_daily$Year, df_daily[[doy_col]])
+          }
+
+          tmp <- df_daily
+          tmp$.Date <- Dcol
+
+          daily <- tmp |>
+            dplyr::group_by(GrowingSeason, .Date) |>
+            dplyr::summarise(
+              sev = mean(DiseaseSeverity, na.rm = TRUE),
+              .groups = "drop"
+            ) |>
+            dplyr::arrange(GrowingSeason, .Date)
+
+          phases_base <- daily |>
+            dplyr::group_by(GrowingSeason) |>
+            dplyr::mutate(
+              sev_max = max(sev, na.rm = TRUE),
+              sev_norm = dplyr::if_else(sev_max > 0, sev / sev_max, 0),
+              sev_diff = sev - dplyr::lag(sev),
+              has_epi = sev_max > 0
+            ) |>
+            dplyr::summarise(
+              has_epi = any(has_epi),
+              onset_idx = {
+                if (!has_epi[1]) {
+                  NA_integer_
+                } else {
+                  ii <- which(sev_norm >= 0.05)
+                  if (length(ii)) ii[1] else NA_integer_
+                }
+              },
+              rapid_idx = {
+                if (!has_epi[1]) {
+                  NA_integer_
+                } else {
+                  dd <- replace(sev_diff, is.na(sev_diff), -Inf)
+                  if (all(!is.finite(dd))) NA_integer_ else which.max(dd)
+                }
+              },
+              peak_idx = {
+                if (!has_epi[1]) {
+                  NA_integer_
+                } else {
+                  if (all(is.na(sev))) NA_integer_ else which.max(sev)
+                }
+              },
+              peak_sev = if (!has_epi[1]) 0 else max(sev, na.rm = TRUE) * 100,
+              .groups = "drop"
+            )
+
+          # Map indices back to dates/DOYs; return NA when no epidemic
+          out <- phases_base |>
+            dplyr::rowwise() |>
+            dplyr::mutate(
+              onset_date = {
+                if (!has_epi || is.na(onset_idx)) {
+                  NA_character_
+                } else {
+                  s <- daily[
+                    daily$GrowingSeason == GrowingSeason,
+                    ,
+                    drop = FALSE
+                  ]
+                  if (onset_idx > nrow(s)) {
+                    NA_character_
+                  } else {
+                    fmt_mmdd(s$.Date[onset_idx])
+                  }
+                }
+              },
+              rapid_date = {
+                if (!has_epi || is.na(rapid_idx)) {
+                  NA_character_
+                } else {
+                  s <- daily[
+                    daily$GrowingSeason == GrowingSeason,
+                    ,
+                    drop = FALSE
+                  ]
+                  if (rapid_idx > nrow(s)) {
+                    NA_character_
+                  } else {
+                    fmt_mmdd(s$.Date[rapid_idx])
+                  }
+                }
+              },
+              peak_date = {
+                if (!has_epi || is.na(peak_idx)) {
+                  NA_character_
+                } else {
+                  s <- daily[
+                    daily$GrowingSeason == GrowingSeason,
+                    ,
+                    drop = FALSE
+                  ]
+                  if (peak_idx > nrow(s)) {
+                    NA_character_
+                  } else {
+                    fmt_mmdd(s$.Date[peak_idx])
+                  }
+                }
+              },
+              onset_doy = {
+                if (!has_epi || is.na(onset_idx)) {
+                  NA_integer_
+                } else {
+                  s <- daily[
+                    daily$GrowingSeason == GrowingSeason,
+                    ,
+                    drop = FALSE
+                  ]
+                  if (onset_idx > nrow(s)) {
+                    NA_integer_
+                  } else {
+                    as.integer(strftime(s$.Date[onset_idx], "%j"))
+                  }
+                }
+              },
+              rapid_doy = {
+                if (!has_epi || is.na(rapid_idx)) {
+                  NA_integer_
+                } else {
+                  s <- daily[
+                    daily$GrowingSeason == GrowingSeason,
+                    ,
+                    drop = FALSE
+                  ]
+                  if (rapid_idx > nrow(s)) {
+                    NA_integer_
+                  } else {
+                    as.integer(strftime(s$.Date[rapid_idx], "%j"))
+                  }
+                }
+              },
+              peak_doy = {
+                if (!has_epi || is.na(peak_idx)) {
+                  NA_integer_
+                } else {
+                  s <- daily[
+                    daily$GrowingSeason == GrowingSeason,
+                    ,
+                    drop = FALSE
+                  ]
+                  if (peak_idx > nrow(s)) {
+                    NA_integer_
+                  } else {
+                    as.integer(strftime(s$.Date[peak_idx], "%j"))
+                  }
+                }
+              }
+            ) |>
+            dplyr::ungroup() |>
+            dplyr::select(-has_epi)
+
+          out
+        }
+
+        # First treatment per season as DATE STRING and timing class vs onset
+        first_treatment_dates <- function(management_data, seasons, phases_df) {
+          tr_cols <- grep(
+            "^treatment_\\d+$",
+            names(management_data),
+            value = TRUE,
+            ignore.case = TRUE
+          )
+          if (!length(tr_cols)) {
+            return(data.frame(
+              GrowingSeason = seasons,
               first_spray_date = NA_character_,
               timing_class = NA_character_
             ))
           }
-          t1_doy <- t_doys[1]
-          onset_row <- phases_df[phases_df$GrowingSeason == yr, , drop = FALSE]
-          onset_doy <- if (nrow(onset_row)) {
-            suppressWarnings(as.numeric(onset_row$onset_doy[1]))
-          } else {
-            NA_real_
-          }
+          tr_cols <- tr_cols[order(as.integer(sub(
+            "^treatment_(\\d+)$",
+            "\\1",
+            tr_cols
+          )))]
 
-          # classify relative to onset using DOYs (works across winter/spring sowing)
-          cls <- if (is.na(onset_doy) || is.na(t1_doy)) {
-            NA_character_
-          } else {
-            if (t1_doy < onset_doy) {
-              "preventive"
-            } else if (t1_doy <= onset_doy + 7) {
-              "on-time"
-            } else {
-              "late"
+          out <- lapply(seasons, function(yr) {
+            row_idx <- integer(0)
+            if ("year" %in% names(management_data)) {
+              ychar <- as.character(management_data$year)
+              row_idx <- which(ychar == as.character(yr))
+              if (!length(row_idx)) row_idx <- which(tolower(ychar) == "all")
             }
-          }
-
-          data.frame(
-            GrowingSeason = yr,
-            first_spray_date = fmt_mmdd(.year_doy_to_date(yr, t1_doy)),
-            timing_class = cls,
-            stringsAsFactors = FALSE
-          )
-        })
-        do.call(rbind, out)
-      }
-
-      # Summarize metrics (RMSE/R²/Bias) by variable, using medians across years
-      summarize_metrics <- function(metrics_df) {
-        if (is.null(metrics_df) || !nrow(metrics_df)) {
-          return("not available.")
-        }
-        nm <- tolower(names(metrics_df))
-        vcol_idx <- which(nm %in% c("variable", "var", "name", "metric"))[1]
-        if (is.na(vcol_idx)) {
-          return("not available.")
-        }
-        vcol <- names(metrics_df)[vcol_idx]
-        num_df <- metrics_df[sapply(metrics_df, is.numeric)]
-        if (!ncol(num_df)) {
-          return("not available.")
-        }
-        agg <- stats::aggregate(
-          num_df,
-          list(Variable = metrics_df[[vcol]]),
-          FUN = function(x) {
-            suppressWarnings(median(as.numeric(x), na.rm = TRUE))
-          }
-        )
-        lines <- apply(agg, 1, function(r) {
-          var <- as.character(r[["Variable"]])
-          rmse <- suppressWarnings(as.numeric(r[["RMSE"]]))
-          r2 <- suppressWarnings(as.numeric(r[["R2"]]))
-          bias <- suppressWarnings(as.numeric(r[["Bias"]]))
-          if (is.na(rmse) || is.na(r2)) {
-            paste0(var, ": insufficient validation signal")
-          } else {
-            dir <- if (!is.na(bias) && bias > 0) {
-              "overestimates"
-            } else if (!is.na(bias)) {
-              "underestimates"
-            } else {
-              "bias unclear"
+            if (!length(row_idx)) {
+              row_idx <- 1L
             }
-            paste0(
-              var,
-              ": RMSE≈",
-              round(rmse, 2),
-              ", R²≈",
-              round(r2, 2),
-              " (model ",
-              dir,
-              ")"
+            row_idx <- row_idx[1]
+
+            t_doys <- suppressWarnings(as.numeric(unlist(management_data[
+              row_idx,
+              tr_cols,
+              drop = FALSE
+            ])))
+            t_doys <- t_doys[!is.na(t_doys)]
+            if (!length(t_doys)) {
+              return(data.frame(
+                GrowingSeason = yr,
+                first_spray_date = NA_character_,
+                timing_class = NA_character_
+              ))
+            }
+            t1_doy <- t_doys[1]
+            onset_row <- phases_df[
+              phases_df$GrowingSeason == yr,
+              ,
+              drop = FALSE
+            ]
+            onset_doy <- if (nrow(onset_row)) {
+              suppressWarnings(as.numeric(onset_row$onset_doy[1]))
+            } else {
+              NA_real_
+            }
+
+            # classify relative to onset using DOYs (works across winter/spring sowing)
+            cls <- if (is.na(onset_doy) || is.na(t1_doy)) {
+              NA_character_
+            } else {
+              if (t1_doy < onset_doy) {
+                "preventive"
+              } else if (t1_doy <= onset_doy + 7) {
+                "on-time"
+              } else {
+                "late"
+              }
+            }
+
+            data.frame(
+              GrowingSeason = yr,
+              first_spray_date = fmt_mmdd(.year_doy_to_date(yr, t1_doy)),
+              timing_class = cls,
+              stringsAsFactors = FALSE
             )
+          })
+          do.call(rbind, out)
+        }
+
+        # Summarize metrics (RMSE/R²/Bias) by variable, using medians across years
+        summarize_metrics <- function(metrics_df) {
+          if (is.null(metrics_df) || !nrow(metrics_df)) {
+            return("not available.")
           }
-        })
-        paste0("\n• ", paste(lines, collapse = "\n• "))
-      }
-
-      # ---------------- overall stats ----------------
-      avg_sev <- safe_round(
-        mean(summary_df$DiseaseSeverity * 100, na.rm = TRUE),
-        1
-      )
-      avg_yield <- safe_round(mean(summary_df$YieldActual, na.rm = TRUE), 0)
-      avg_loss <- safe_round(mean(summary_df$YieldLossPerc, na.rm = TRUE), 1)
-      mean_tx <- safe_mean(summary_df$AveTx)
-      mean_tn <- safe_mean(summary_df$AveTn)
-      mean_lw <- safe_mean(summary_df$TotalLW)
-      mean_pr <- safe_mean(summary_df$TotalPrec)
-
-      year_max <- summary_df$GrowingSeason[which.max(
-        summary_df$DiseaseSeverity
-      )]
-      year_min <- summary_df$GrowingSeason[which.min(
-        summary_df$DiseaseSeverity
-      )]
-
-      phases <- detect_epidemic_phases_dates(outputs_df)
-      seasons <- sort(unique(summary_df$GrowingSeason))
-      spray_df <- first_treatment_dates(management_data, seasons, phases)
-
-      onset_med_mmdd <- median_mmdd_from_dates(mmdd_to_date(phases$onset_date))
-      rapid_med_mmdd <- median_mmdd_from_dates(mmdd_to_date(phases$rapid_date))
-      peak_med_mmdd <- median_mmdd_from_dates(mmdd_to_date(phases$peak_date))
-
-      gs_len <- outputs_df |>
-        dplyr::mutate(.Date = .parse_output_date(Date)) |>
-        dplyr::group_by(GrowingSeason) |>
-        dplyr::summarise(
-          start = min(.Date, na.rm = TRUE),
-          end = max(.Date, na.rm = TRUE),
-          .groups = "drop"
-        ) |>
-        dplyr::mutate(length_days = as.numeric(end - start) + 1)
-      dur_med <- safe_round(stats::median(gs_len$length_days, na.rm = TRUE), 0)
-
-      no_epidemic <- !any(summary_df$DiseaseSeverity > 0, na.rm = TRUE)
-      avg_tr_num <- suppressWarnings(mean(apply(spray_df, 1, function(x) {
-        sum(!is.na(x))
-      })))
-
-      # weather–disease associations (Pearson r)
-      yearly_summary <- summary_df |>
-        dplyr::group_by(GrowingSeason) |>
-        dplyr::summarise(
-          lw = mean(TotalLW, na.rm = TRUE),
-          tx = mean(AveTx, na.rm = TRUE),
-          tn = mean(AveTn, na.rm = TRUE),
-          rhx = mean(AveRHx, na.rm = T),
-          rhn = mean(AveRHn, na.rm = T),
-          totalPrec = mean(TotalPrec, na.rm = TRUE),
-          avg_severity = mean(DiseaseSeverity, na.rm = TRUE) * 100,
-          .groups = "drop"
-        )
-      do_cor <- function(x, y) {
-        ok <- is.finite(x) & is.finite(y)
-        if (sum(ok) < 4) {
-          return(NA_real_)
-        }
-        unname(suppressWarnings(cor(x[ok], y[ok], method = "pearson")))
-      }
-      cors <- data.frame(
-        var = c(
-          "rainfall",
-          "leaf-wetness",
-          "t max",
-          "t min",
-          "rh max",
-          "rh min"
-        ),
-        r = c(
-          do_cor(yearly_summary$totalPrec, yearly_summary$avg_severity),
-          do_cor(yearly_summary$lw, yearly_summary$avg_severity),
-          do_cor(yearly_summary$tx, yearly_summary$avg_severity),
-          do_cor(yearly_summary$tn, yearly_summary$avg_severity),
-          do_cor(yearly_summary$rhx, yearly_summary$avg_severity),
-          do_cor(yearly_summary$rhn, yearly_summary$avg_severity)
-        )
-      )
-      block_climate_cor <- if (no_epidemic) {
-        "No disease was detected across seasons; weather–disease correlations were not computed."
-      } else {
-        paste0(
-          "Weather–disease associations: ",
-          paste(cors$var, "(r=", sprintf("%.2f", cors$r), ")", collapse = "; "),
-          "."
-        )
-      }
-
-      # proportions by class
-      timing_tab <- table(
-        factor(
-          spray_df$timing_class,
-          levels = c("preventive", "on-time", "late")
-        ),
-        useNA = "no"
-      )
-      total_n <- sum(timing_tab)
-      pct <- function(n) {
-        if (total_n == 0) NA_real_ else round(100 * n / total_n, 1)
-      }
-      pct_prev <- pct(timing_tab["preventive"])
-      pct_on <- pct(timing_tab["on-time"])
-      pct_late <- pct(timing_tab["late"])
-
-      # Count number of treatments per row of a management data.frame
-      count_treatments <- function(management_data) {
-        tr_cols <- grep(
-          "^treatment_\\d+$",
-          names(management_data),
-          value = TRUE,
-          ignore.case = TRUE
-        )
-        if (!length(tr_cols)) {
-          return(integer(nrow(management_data)))
-        }
-
-        apply(management_data[tr_cols], 1, function(row) {
-          sum(!is.na(row) & row != "")
-        })
-      }
-
-      # --- LLM utilities ------------------------------------------------------------
-      .llm_enabled <- function(apikey) {
-        is.character(apikey) && nzchar(apikey)
-      }
-
-      # personality mapper → textual style
-      .llm_personality_style <- function(persona) {
-        switch(
-          tolower(persona[1]),
-          "scientist" = "neutral, scientific, concise, with technical precision",
-          "extensionist" = "practical, advisory, farmer-facing tone; clear but non-technical",
-          "farmer" = "informal, field-wise tone with plain language",
-          "neutral, scientific" # fallback
-        )
-      }
-
-      # build system role for chat
-      .llm_system_role <- function(persona) {
-        switch(
-          tolower(persona[1]),
-          "scientist" = "You are a concise agrometeorology & plant pathology scientist. Neutral, precise, scientific. Use mm/dd dates, no DOY, no emojis.",
-          "extensionist" = "You are a farm advisor. Be clear, supportive, and practical. Use mm/dd dates, no jargon, no emojis.",
-          "farmer" = "You are a seasoned farmer. Use simple words, warm tone, and memorable phrasing. Use mm/dd dates, no DOY, no emojis.",
-          "You are a neutral assistant. Use mm/dd dates, no DOY, no emojis."
-        )
-      }
-
-      # generic chat wrapper
-      .llm_chat <- function(
-        prompt,
-        apikey,
-        persona = "scientist",
-        model = "openai/gpt-4o-mini",
-        max_tokens = 300,
-        temperature = 0.3
-      ) {
-        if (!.llm_enabled(apikey)) {
-          return(NA_character_)
-        }
-        if (!requireNamespace("httr2", quietly = TRUE)) {
-          warning(
-            "Package 'httr2' is required for LLM features. Falling back to rule-based text."
-          )
-          return(NA_character_)
-        }
-
-        system_role <- .llm_system_role(persona)
-
-        req <- httr2::request(
-          "https://openrouter.ai/api/v1/chat/completions"
-        ) |>
-          httr2::req_headers(
-            "Authorization" = paste("Bearer", apikey),
-            "Content-Type" = "application/json"
-          ) |>
-          httr2::req_body_json(list(
-            model = model,
-            messages = list(
-              list(role = "system", content = system_role),
-              list(role = "user", content = prompt)
-            ),
-            max_tokens = max_tokens,
-            temperature = temperature
-          ))
-
-        resp <- try(httr2::req_perform(req), silent = TRUE)
-        if (inherits(resp, "try-error")) {
-          return(NA_character_)
-        }
-        out <- try(httr2::resp_body_json(resp), silent = TRUE)
-        if (inherits(out, "try-error")) {
-          return(NA_character_)
-        }
-        txt <- try(out$choices[[1]]$message$content, silent = TRUE)
-        if (inherits(txt, "try-error") || is.null(txt)) {
-          return(NA_character_)
-        }
-        as.character(txt)
-      }
-
-      # --- Prompt builders ----------------------------------------------------------
-
-      .llm_prompt_disease_dyn <- function(
-        no_epidemic,
-        onset_med_mmdd,
-        rapid_med_mmdd,
-        peak_med_mmdd,
-        dur_med,
-        persona = "scientist"
-      ) {
-        style <- .llm_personality_style(persona)
-        if (isTRUE(no_epidemic)) {
-          sprintf(
-            "Write a 2–3 sentence block. Context: no epidemic observed (severity≈0). Typical season length ~%s days.
-Style: %s. Use mm/dd only, no DOY.",
-            dur_med,
-            style
-          )
-        } else {
-          sprintf(
-            "Write a 2–3 sentence block. Median timings: onset %s, rapid-rise %s, peak %s; season length ~%s days.
-Style: %s. Use mm/dd only, no DOY.",
-            onset_med_mmdd,
-            rapid_med_mmdd,
-            peak_med_mmdd,
-            dur_med,
-            style
-          )
-        }
-      }
-
-      .llm_prompt_sprays <- function(
-        no_epidemic,
-        avg_treatments,
-        pct_prev,
-        pct_on,
-        pct_late,
-        onset_med_mmdd,
-        rapid_med_mmdd,
-        persona = "scientist"
-      ) {
-        style <- .llm_personality_style(persona)
-        if (isTRUE(no_epidemic)) {
-          sprintf(
-            "Write a 2–3 sentence block. Inputs: average applications=%s; no epidemic observed (onset unavailable).
-Guidance: emphasize scouting and weather-based risk; suggest reducing prophylactic sprays.
-Style: %s. Use mm/dd only, no DOY.",
-            ifelse(is.finite(avg_treatments), round(avg_treatments, 1), "NA"),
-            style
-          )
-        } else {
-          sprintf(
-            "Write a 2–3 sentence block. Inputs: average applications=%s; first-spray vs onset: preventive=%s%%, on-time=%s%%, late=%s%%.
-Benchmarks: onset≈%s, rapid-rise≈%s (mm/dd).
-Provide timing guidance. Style: %s. Use mm/dd only, no DOY.",
-            ifelse(is.finite(avg_treatments), round(avg_treatments, 1), "NA"),
-            ifelse(is.na(pct_prev), "NA", pct_prev),
-            ifelse(is.na(pct_on), "NA", pct_on),
-            ifelse(is.na(pct_late), "NA", pct_late),
-            ifelse(is.na(onset_med_mmdd), "NA", onset_med_mmdd),
-            ifelse(is.na(rapid_med_mmdd), "NA", rapid_med_mmdd),
-            style
-          )
-        }
-      }
-
-      # --- Persona-aware section headers --------------------------------------------
-      .section_headers <- function(persona) {
-        switch(
-          tolower(persona[1]),
-          "scientist" = list(
-            overview = "🧐 OVERVIEW",
-            weather = "🌧️ WEATHER–DISEASE ASSOCIATIONS",
-            dynamics = "🍄 DISEASE DYNAMICS (CALENDAR DATES)",
-            sprays = "⚕️ FUNGICIDE PROGRAM & TIMING",
-            metrics = "🤖 MODEL PERFORMANCE",
-            yearly = "📅 YEARLY HIGHLIGHTS",
-            proverb = "💬 PROVERB"
-          ),
-          "extensionist" = list(
-            overview = "📋 ADVISORY NOTES",
-            weather = "🌦️ WEATHER & DISEASE LINK",
-            dynamics = "🌱 CROP & DISEASE CYCLE",
-            sprays = "💊 SPRAY PROGRAM",
-            metrics = "📊 MODEL CHECK",
-            yearly = "📅 FIELD SEASON HIGHLIGHTS",
-            proverb = "💬 FIELD WISDOM"
-          ),
-          "farmer" = list(
-            overview = "🌱 FIELD NOTES",
-            weather = "🌦️ WEATHER & DISEASE",
-            dynamics = "🍂 SEASON’S DISEASE STORY",
-            sprays = "💉 SPRAYING PRACTICES",
-            metrics = "🔍 HOW THE MODEL DID",
-            yearly = "📅 SEASON-BY-SEASON HIGHLIGHTS",
-            proverb = "💬 FARM SAYING"
-          ),
-          # fallback
-          list(
-            overview = "🧐 OVERVIEW",
-            weather = "🌧️ WEATHER–DISEASE ASSOCIATIONS",
-            dynamics = "🍄 DISEASE DYNAMICS (CALENDAR DATES)",
-            sprays = "⚕️ FUNGICIDE PROGRAM & TIMING",
-            metrics = "🤖 MODEL PERFORMANCE",
-            yearly = "📅 YEARLY HIGHLIGHTS",
-            proverb = "💬 PROVERB"
-          )
-        )
-      }
-
-      # --- WEATHER–DISEASE ASSOCIATIONS ---------------------------------------------
-      .llm_prompt_weather_assoc <- function(
-        cors,
-        no_epidemic,
-        persona = "scientist"
-      ) {
-        style <- .llm_personality_style(persona)
-
-        if (isTRUE(no_epidemic)) {
-          sprintf(
-            "Write 1–2 sentences. Context: no epidemic detected, so weather–disease correlations are negligible.
-Style: %s. Be concise, mm/dd dates if needed, no DOY.",
-            style
-          )
-        } else {
-          cors_text <- paste(
-            cors$var,
-            "(r=",
-            sprintf("%.2f", cors$r),
-            ")",
-            collapse = "; "
-          )
-          sprintf(
-            "Write 1–2 sentences summarizing weather–disease associations.
-Inputs: %s.
-Style: %s. Be concise, no DOY.",
-            cors_text,
-            style
-          )
-        }
-      }
-
-      get_llm_weather_assoc <- function(
-        apikey,
-        cors,
-        no_epidemic,
-        persona = "scientist"
-      ) {
-        prompt <- .llm_prompt_weather_assoc(cors, no_epidemic, persona)
-        .llm_chat(prompt, apikey, persona = persona, max_tokens = 120)
-      }
-
-      # --- MODEL PERFORMANCE / METRICS ----------------------------------------------
-      .llm_prompt_metrics <- function(metrics_df, persona = "scientist") {
-        style <- .llm_personality_style(persona)
-
-        if (is.null(metrics_df) || !nrow(metrics_df)) {
-          sprintf(
-            "Write 1 short sentence: validation metrics not available. Style: %s.",
-            style
-          )
-        } else {
-          # Extract a human-readable string
           nm <- tolower(names(metrics_df))
           vcol_idx <- which(nm %in% c("variable", "var", "name", "metric"))[1]
-          vcol <- if (!is.na(vcol_idx)) {
-            names(metrics_df)[vcol_idx]
-          } else {
-            "Variable"
+          if (is.na(vcol_idx)) {
+            return("not available.")
           }
-
+          vcol <- names(metrics_df)[vcol_idx]
           num_df <- metrics_df[sapply(metrics_df, is.numeric)]
+          if (!ncol(num_df)) {
+            return("not available.")
+          }
           agg <- stats::aggregate(
             num_df,
             list(Variable = metrics_df[[vcol]]),
@@ -2299,7 +1912,6 @@ Style: %s. Be concise, no DOY.",
               suppressWarnings(median(as.numeric(x), na.rm = TRUE))
             }
           )
-
           lines <- apply(agg, 1, function(r) {
             var <- as.character(r[["Variable"]])
             rmse <- suppressWarnings(as.numeric(r[["RMSE"]]))
@@ -2327,506 +1939,956 @@ Style: %s. Be concise, no DOY.",
               )
             }
           })
-          metrics_text <- paste(lines, collapse = "; ")
-
-          sprintf(
-            "Write a 1–2 sentence summary of model–observation performance.
-Inputs: %s.
-Style: %s. Be concise, no DOY.",
-            metrics_text,
-            style
-          )
-        }
-      }
-
-      get_llm_weather_assoc <- function(
-        apikey,
-        cors,
-        no_epidemic,
-        persona = "scientist"
-      ) {
-        prompt <- .llm_prompt_weather_assoc(cors, no_epidemic, persona)
-        .llm_chat(prompt, apikey, persona = persona, max_tokens = 120)
-      }
-
-      get_llm_metrics <- function(apikey, metrics_df, persona = "scientist") {
-        prompt <- .llm_prompt_metrics(metrics_df, persona)
-        .llm_chat(prompt, apikey, persona = persona, max_tokens = 120)
-      }
-
-      get_llm_overview <- function(
-        apikey,
-        stats,
-        no_epidemic,
-        persona = "scientist"
-      ) {
-        style <- .llm_personality_style(persona)
-        base_prompt <- if (no_epidemic) {
-          sprintf(
-            "Write 1–2 sentences (no emojis). Dataset: no epidemic signal.
-Include mean yield≈%s kg/ha, Tx/Tn≈%s/%s °C, rainfall≈%s mm, leaf-wetness≈%s h.
-Style: %s.",
-            stats$avg_yield,
-            stats$mean_tx,
-            stats$mean_tn,
-            stats$mean_pr,
-            stats$mean_lw,
-            style
-          )
-        } else {
-          sprintf(
-            "Write 1–2 sentences (no emojis). Dataset: crop–disease dataset.
-Include avg severity≈%s%%, mean yield≈%s kg/ha, Tx/Tn≈%s/%s °C, rainfall≈%s mm, leaf-wetness≈%s h.
-Style: %s.",
-            stats$avg_sev,
-            stats$avg_yield,
-            stats$mean_tx,
-            stats$mean_tn,
-            stats$mean_pr,
-            stats$mean_lw,
-            style
-          )
-        }
-        .llm_chat(base_prompt, apikey, persona = persona, max_tokens = 90)
-      }
-
-      get_llm_proverb <- function(apikey, persona = "scientist") {
-        style <- .llm_personality_style(persona)
-        prompt <- sprintf(
-          "Invent a single-line, field-savvy proverb about crop disease timing and moisture.
-Max 10 words, no emojis. Style: %s.",
-          style
-        )
-        .llm_chat(prompt, apikey, persona = persona, max_tokens = 25)
-      }
-
-      # --- Overview / proverb -------------------------------------------------------
-      get_llm_overview <- function(
-        apikey,
-        stats,
-        no_epidemic,
-        persona = "scientist"
-      ) {
-        style <- .llm_personality_style(persona)
-
-        base_prompt <- if (no_epidemic) {
-          sprintf(
-            "Write 1–2 sentences (no emojis). Dataset: no epidemic signal.
-Include mean yield≈%s kg/ha, Tx/Tn≈%s/%s °C, rainfall≈%s mm, leaf-wetness≈%s h.
-Style: %s.",
-            stats$avg_yield,
-            stats$mean_tx,
-            stats$mean_tn,
-            stats$mean_pr,
-            stats$mean_lw,
-            style
-          )
-        } else {
-          sprintf(
-            "Write 1–2 sentences (no emojis). Dataset: crop–disease dataset.
-Include avg severity≈%s%%, mean yield≈%s kg/ha, Tx/Tn≈%s/%s °C, rainfall≈%s mm, leaf-wetness≈%s h.
-Style: %s.",
-            stats$avg_sev,
-            stats$avg_yield,
-            stats$mean_tx,
-            stats$mean_tn,
-            stats$mean_pr,
-            stats$mean_lw,
-            style
-          )
+          paste0("\n• ", paste(lines, collapse = "\n• "))
         }
 
-        .llm_chat(base_prompt, apikey, persona = persona, max_tokens = 90)
-      }
-
-      # WEATHER–DISEASE ASSOCIATIONS
-      llm_weather <- get_llm_weather_assoc(
-        apikey,
-        cors,
-        no_epidemic,
-        persona = personality
-      )
-      block_climate_cor <- if (nzchar(llm_weather)) {
-        llm_weather
-      } else if (no_epidemic) {
-        "No disease was detected across seasons; weather–disease correlations were not computed."
-      } else {
-        paste0(
-          "Weather–disease associations: ",
-          paste(cors$var, "(r=", sprintf("%.2f", cors$r), ")", collapse = "; "),
-          "."
-        )
-      }
-
-      # MODEL PERFORMANCE
-      llm_metrics <- get_llm_metrics(apikey, metrics_df, persona = personality)
-      block_metrics <- if (nzchar(llm_metrics)) {
-        llm_metrics
-      } else {
-        paste0("Model–observation performance:", summarize_metrics(metrics_df))
-      }
-
-      # --- DISEASE DYNAMICS via LLM (fallback to rule-based) ---
-
-      dd_prompt <- .llm_prompt_disease_dyn(
-        no_epidemic = no_epidemic,
-        onset_med_mmdd = onset_med_mmdd,
-        rapid_med_mmdd = rapid_med_mmdd,
-        peak_med_mmdd = peak_med_mmdd,
-        dur_med = dur_med
-      )
-      dd_txt <- .llm_chat(
-        dd_prompt,
-        apikey,
-        persona = personality,
-        max_tokens = 180
-      )
-
-      block_disease_dyn <- if (!is.na(dd_txt)) {
-        dd_txt
-      } else if (no_epidemic) {
-        paste0(
-          "No epidemic signal was detected (severity remained at or near zero). ",
-          "A typical growing season spanned ~",
-          dur_med,
-          " days. ",
-          "Monitor canopy wetness and night temperatures; if disease pressure emerges in future seasons, ",
-          "onset/peak timing will be reported here."
-        )
-      } else {
-        paste0(
-          "Epidemics typically began around ",
-          onset_med_mmdd,
-          ", accelerated in ",
-          rapid_med_mmdd,
-          ", and peaked near ",
-          peak_med_mmdd,
-          ". ",
-          "A typical growing season spanned ~",
-          dur_med,
-          " days."
-        )
-      }
-
-      # --- FUNGICIDE PROGRAM & TIMING via LLM (fallback to rule-based) ---
-      avg_tr_num <- suppressWarnings(mean(count_treatments(management_data)))
-
-      sp_prompt <- .llm_prompt_sprays(
-        no_epidemic = no_epidemic,
-        avg_treatments = avg_tr_num,
-        pct_prev = pct_prev,
-        pct_on = pct_on,
-        pct_late = pct_late,
-        onset_med_mmdd = onset_med_mmdd,
-        rapid_med_mmdd = rapid_med_mmdd
-      )
-      sp_txt <- .llm_chat(
-        sp_prompt,
-        apikey,
-        persona = personality,
-        max_tokens = 180
-      )
-
-      block_sprays <- if (!is.na(sp_txt)) {
-        sp_txt
-      } else if (no_epidemic) {
-        paste0(
-          "Fungicide program averaged ",
-          round(avg_tr_num, 1),
-          " applications. ",
-          "Onset was not detected, so timing classification is not applicable. ",
-          "Disease pressure was absent; consider reducing or omitting prophylactic sprays and emphasize scouting and weather-based risk monitoring."
-        )
-      } else {
-        paste0(
-          "Fungicide program averaged ",
-          round(avg_tr_num, 1),
-          " applications. ",
-          "First application timing relative to onset: preventive ",
-          pct_prev,
-          "%, on-time ",
-          pct_on,
-          "%, late ",
-          pct_late,
-          "%."
-        )
-      }
-
-      no_epidemic <- !any(summary_df$DiseaseSeverity > 0, na.rm = TRUE)
-
-      avg_treatments <- count_treatments(management_data)
-
-      stats_list <- list(
-        avg_sev = avg_sev,
-        avg_yield = avg_yield,
-        mean_tx = mean_tx,
-        mean_tn = mean_tn,
-        mean_pr = mean_pr,
-        mean_lw = mean_lw
-      )
-
-      llm_overview <- get_llm_overview(
-        apikey,
-        persona = personality,
-        stats_list,
-        no_epidemic
-      )
-
-      block_overview <- if (isTRUE(no_epidemic)) {
-        if (nzchar(llm_overview)) {
-          llm_overview
-        } else {
-          paste0(
-            "Across seasons, average disease severity was ",
-            avg_sev,
-            "%, with mean yield around ",
-            avg_yield,
-            " kg/ha. Conditions averaged ",
-            mean_tx,
-            "/",
-            mean_tn,
-            " °C, ~",
-            mean_pr,
-            " mm rainfall, and ~",
-            mean_lw,
-            " h leaf-wetness. ",
-            "No epidemic signal was detected."
-          )
-        }
-      } else {
-        if (nzchar(llm_overview)) {
-          llm_overview
-        } else {
-          paste0(
-            "Across seasons, average disease severity was ",
-            avg_sev,
-            "%, with mean yield around ",
-            avg_yield,
-            " kg/ha. Conditions averaged ",
-            mean_tx,
-            "/",
-            mean_tn,
-            " °C, ~",
-            mean_pr,
-            " mm rainfall, and ~",
-            mean_lw,
-            " h leaf-wetness, creating recurrent infection windows."
-          )
-        }
-      }
-
-      timing_advice <- if (no_epidemic) {
-        "Disease pressure was absent; consider reducing or omitting prophylactic sprays and emphasize scouting and weather-based risk monitoring."
-      } else if (!is.na(pct_prev) && pct_prev >= 60) {
-        paste0(
-          "Applications were mostly preventive; consider delaying the first spray to just precede onset (≈ ",
-          onset_med_mmdd,
-          ") and concentrate coverage during sustained wet-canopy periods."
-        )
-      } else if (!is.na(pct_late) && pct_late >= 30) {
-        paste0(
-          "Applications often lagged the epidemic; advance the first spray to just before onset (≈ ",
-          onset_med_mmdd,
-          ") and avoid long gaps during the rapid increase window (≈ ",
-          rapid_med_mmdd,
-          ")."
-        )
-      } else {
-        paste0(
-          "Timing broadly aligned with onset; keep the first spray just before onset (≈ ",
-          onset_med_mmdd,
-          ") and tighten intervals through the rapid rise window (≈ ",
-          rapid_med_mmdd,
-          ")."
-        )
-      }
-
-      # Metrics block
-      block_metrics <- paste0(
-        "Model–observation performance:",
-        summarize_metrics(metrics_df)
-      )
-
-      # Yearly highlights (use mm/dd everywhere)
-      per_year <- summary_df |>
-        dplyr::group_by(GrowingSeason) |>
-        dplyr::summarise(
-          sev_pct = safe_round(mean(DiseaseSeverity, na.rm = TRUE) * 100, 1),
-          y_act = safe_round(mean(YieldActual, na.rm = TRUE), 1),
-          loss_pct = safe_round(mean(YieldLossPerc, na.rm = TRUE), 1),
-          .groups = "drop"
-        ) |>
-        dplyr::left_join(
-          phases[, c(
-            "GrowingSeason",
-            "onset_date",
-            "rapid_date",
-            "peak_date",
-            "peak_sev"
-          )],
-          by = "GrowingSeason"
-        ) |>
-        dplyr::left_join(
-          spray_df[, c("GrowingSeason", "first_spray_date", "timing_class")],
-          by = "GrowingSeason"
-        )
-
-      badge_for <- function(gs) {
-        if (no_epidemic) {
-          ""
-        } else if (isTRUE(gs == year_max)) {
-          "[highest severity]"
-        } else if (isTRUE(gs == year_min)) {
-          "[lowest severity]"
-        } else {
-          ""
-        }
-      }
-
-      fmt_year_line <- function(r) {
-        gs <- r[["GrowingSeason"]]
-
-        on_d <- r[["onset_date"]]
-        rr_d <- r[["rapid_date"]]
-        pk_d <- r[["peak_date"]]
-        pk_s <- suppressWarnings(as.numeric(r[["peak_sev"]]))
-
-        py_d <- r[["peak_yield_date"]]
-        py_v <- suppressWarnings(as.numeric(r[["peak_yield_value"]]))
-
-        fs_d <- r[["first_spray_date"]]
-        fs_c <- r[["timing_class"]]
-
-        parts <- c(
-          sprintf(
-            "• %s: %s%% severity; %s kg/ha (%s%% loss).",
-            gs,
-            r[["sev_pct"]],
-            r[["y_act"]],
-            r[["loss_pct"]]
-          )
-        )
-
-        # disease timing (add only if available)
-        if (isTRUE(nzchar(on_d))) {
-          parts <- c(parts, paste0(" Onset ", on_d))
-        }
-        if (isTRUE(nzchar(rr_d))) {
-          parts <- c(parts, paste0(", rapid rise ~", rr_d))
-        }
-        if (isTRUE(nzchar(pk_d))) {
-          if (isTRUE(!is.na(pk_s))) {
-            parts <- c(
-              parts,
-              paste0(", peak ", pk_d, " (", round(pk_s, 1), "%)")
-            )
-          } else {
-            parts <- c(parts, paste0(", peak ", pk_d))
-          }
-        }
-
-        # peak yield (date + value), NA-safe
-        if (isTRUE(nzchar(py_d)) && isTRUE(!is.na(py_v))) {
-          parts <- c(
-            parts,
-            paste0(". Peak yield ", round(py_v, 1), " kg/ha on ", py_d)
-          )
-        }
-
-        # first spray
-        if (isTRUE(nzchar(fs_d))) {
-          if (isTRUE(nzchar(fs_c))) {
-            parts <- c(parts, paste0(". First spray ", fs_d, " (", fs_c, ")"))
-          } else {
-            parts <- c(parts, paste0(". First spray ", fs_d))
-          }
-        }
-
-        paste0(paste(parts, collapse = ""), " ", badge_for(gs))
-      }
-
-      pick_ids <- unique(na.omit(c(
-        per_year$GrowingSeason[which.max(per_year$sev_pct)],
-        per_year$GrowingSeason[which.min(per_year$sev_pct)]
-      )))
-      if (length(pick_ids) < 4) {
-        remain <- setdiff(per_year$GrowingSeason, pick_ids)
-        pick_ids <- c(pick_ids, tail(sort(remain), 4 - length(pick_ids)))
-      }
-      hl_years <- per_year[
-        match(pick_ids, per_year$GrowingSeason),
-        ,
-        drop = FALSE
-      ]
-      yearly_lines <- if (nrow(hl_years)) {
-        vapply(
-          seq_len(nrow(hl_years)),
-          function(i) fmt_year_line(hl_years[i, ]),
-          FUN.VALUE = character(1)
-        )
-      } else {
-        "• No seasonal highlights."
-      }
-
-      # Proverb
-      proverb_llm <- get_llm_proverb(apikey)
-      proverb <- if (nzchar(proverb_llm)) {
-        proverb_llm
-      } else {
-        sample(
-          c(
-            "Spray before the rise, harvest before the fall.",
-            "Where wet nights linger, rust remembers.",
-            "A timely dose saves a season.",
-            "Moisture writes what management must read."
-          ),
+        # ---------------- overall stats ----------------
+        avg_sev <- safe_round(
+          mean(summary_df$DiseaseSeverity * 100, na.rm = TRUE),
           1
         )
+        avg_yield <- safe_round(mean(summary_df$YieldActual, na.rm = TRUE), 0)
+        avg_loss <- safe_round(mean(summary_df$YieldLossPerc, na.rm = TRUE), 1)
+        mean_tx <- safe_mean(summary_df$AveTx)
+        mean_tn <- safe_mean(summary_df$AveTn)
+        mean_lw <- safe_mean(summary_df$TotalLW)
+        mean_pr <- safe_mean(summary_df$TotalPrec)
+
+        year_max <- summary_df$GrowingSeason[which.max(
+          summary_df$DiseaseSeverity
+        )]
+        year_min <- summary_df$GrowingSeason[which.min(
+          summary_df$DiseaseSeverity
+        )]
+
+        phases <- detect_epidemic_phases_dates(outputs_df)
+        seasons <- sort(unique(summary_df$GrowingSeason))
+        spray_df <- first_treatment_dates(management_data, seasons, phases)
+
+        onset_med_mmdd <- median_mmdd_from_dates(mmdd_to_date(
+          phases$onset_date
+        ))
+        rapid_med_mmdd <- median_mmdd_from_dates(mmdd_to_date(
+          phases$rapid_date
+        ))
+        peak_med_mmdd <- median_mmdd_from_dates(mmdd_to_date(phases$peak_date))
+
+        gs_len <- outputs_df |>
+          dplyr::mutate(.Date = .parse_output_date(Date)) |>
+          dplyr::group_by(GrowingSeason) |>
+          dplyr::summarise(
+            start = min(.Date, na.rm = TRUE),
+            end = max(.Date, na.rm = TRUE),
+            .groups = "drop"
+          ) |>
+          dplyr::mutate(length_days = as.numeric(end - start) + 1)
+        dur_med <- safe_round(
+          stats::median(gs_len$length_days, na.rm = TRUE),
+          0
+        )
+
+        no_epidemic <- !any(summary_df$DiseaseSeverity > 0, na.rm = TRUE)
+        avg_tr_num <- suppressWarnings(mean(apply(spray_df, 1, function(x) {
+          sum(!is.na(x))
+        })))
+
+        # weather–disease associations (Pearson r)
+        yearly_summary <- summary_df |>
+          dplyr::group_by(GrowingSeason) |>
+          dplyr::summarise(
+            lw = mean(TotalLW, na.rm = TRUE),
+            tx = mean(AveTx, na.rm = TRUE),
+            tn = mean(AveTn, na.rm = TRUE),
+            rhx = mean(AveRHx, na.rm = T),
+            rhn = mean(AveRHn, na.rm = T),
+            totalPrec = mean(TotalPrec, na.rm = TRUE),
+            avg_severity = mean(DiseaseSeverity, na.rm = TRUE) * 100,
+            .groups = "drop"
+          )
+        do_cor <- function(x, y) {
+          ok <- is.finite(x) & is.finite(y)
+          if (sum(ok) < 4) {
+            return(NA_real_)
+          }
+          unname(suppressWarnings(cor(x[ok], y[ok], method = "pearson")))
+        }
+        cors <- data.frame(
+          var = c(
+            "rainfall",
+            "leaf-wetness",
+            "t max",
+            "t min",
+            "rh max",
+            "rh min"
+          ),
+          r = c(
+            do_cor(yearly_summary$totalPrec, yearly_summary$avg_severity),
+            do_cor(yearly_summary$lw, yearly_summary$avg_severity),
+            do_cor(yearly_summary$tx, yearly_summary$avg_severity),
+            do_cor(yearly_summary$tn, yearly_summary$avg_severity),
+            do_cor(yearly_summary$rhx, yearly_summary$avg_severity),
+            do_cor(yearly_summary$rhn, yearly_summary$avg_severity)
+          )
+        )
+        block_climate_cor <- if (no_epidemic) {
+          "No disease was detected across seasons; weather–disease correlations were not computed."
+        } else {
+          paste0(
+            "Weather–disease associations: ",
+            paste(
+              cors$var,
+              "(r=",
+              sprintf("%.2f", cors$r),
+              ")",
+              collapse = "; "
+            ),
+            "."
+          )
+        }
+
+        # proportions by class
+        timing_tab <- table(
+          factor(
+            spray_df$timing_class,
+            levels = c("preventive", "on-time", "late")
+          ),
+          useNA = "no"
+        )
+        total_n <- sum(timing_tab)
+        pct <- function(n) {
+          if (total_n == 0) NA_real_ else round(100 * n / total_n, 1)
+        }
+        pct_prev <- pct(timing_tab["preventive"])
+        pct_on <- pct(timing_tab["on-time"])
+        pct_late <- pct(timing_tab["late"])
+
+        # Count number of treatments per row of a management data.frame
+        count_treatments <- function(management_data) {
+          tr_cols <- grep(
+            "^treatment_\\d+$",
+            names(management_data),
+            value = TRUE,
+            ignore.case = TRUE
+          )
+          if (!length(tr_cols)) {
+            return(integer(nrow(management_data)))
+          }
+
+          apply(management_data[tr_cols], 1, function(row) {
+            sum(!is.na(row) & row != "")
+          })
+        }
+
+        # --- LLM utilities ------------------------------------------------------------
+        .llm_enabled <- function(apikey) {
+          is.character(apikey) && nzchar(apikey)
+        }
+        .has_text <- function(x) {
+          is.character(x) && length(x) == 1 && !is.na(x) && nzchar(x)
+        }
+        # personality mapper → textual style
+        .llm_personality_style <- function(persona) {
+          switch(
+            tolower(persona[1]),
+            "scientist" = "neutral, scientific, concise, with technical precision",
+            "extensionist" = "practical, advisory, farmer-facing tone; clear but non-technical",
+            "farmer" = "informal, field-wise tone with plain language",
+            "neutral, scientific" # fallback
+          )
+        }
+
+        # build system role for chat
+        .llm_system_role <- function(persona) {
+          switch(
+            tolower(persona[1]),
+            "scientist" = "You are a concise agrometeorology & plant pathology scientist. Neutral, precise, scientific. Use mm/dd dates, no DOY, no emojis.",
+            "extensionist" = "You are a farm advisor. Be clear, supportive, and practical. Use mm/dd dates, no jargon, no emojis.",
+            "farmer" = "You are a seasoned farmer. Use simple words, warm tone, and memorable phrasing. Use mm/dd dates, no DOY, no emojis.",
+            "You are a neutral assistant. Use mm/dd dates, no DOY, no emojis."
+          )
+        }
+
+        # generic chat wrapper
+        .llm_chat <- function(
+          prompt,
+          apikey,
+          persona = "scientist",
+          model = "openai/gpt-4o-mini",
+          max_tokens = 300,
+          temperature = 0.3
+        ) {
+          if (!.llm_enabled(apikey)) {
+            return(NA_character_)
+          }
+          if (!requireNamespace("httr2", quietly = TRUE)) {
+            warning(
+              "Package 'httr2' is required for LLM features. Falling back to rule-based text."
+            )
+            return(NA_character_)
+          }
+
+          system_role <- .llm_system_role(persona)
+
+          req <- httr2::request(
+            "https://openrouter.ai/api/v1/chat/completions"
+          ) |>
+            httr2::req_headers(
+              "Authorization" = paste("Bearer", apikey),
+              "Content-Type" = "application/json"
+            ) |>
+            httr2::req_body_json(list(
+              model = model,
+              messages = list(
+                list(role = "system", content = system_role),
+                list(role = "user", content = prompt)
+              ),
+              max_tokens = max_tokens,
+              temperature = temperature
+            ))
+
+          resp <- try(httr2::req_perform(req), silent = TRUE)
+          if (inherits(resp, "try-error")) {
+            return(NA_character_)
+          }
+          out <- try(httr2::resp_body_json(resp), silent = TRUE)
+          if (inherits(out, "try-error")) {
+            return(NA_character_)
+          }
+          txt <- try(out$choices[[1]]$message$content, silent = TRUE)
+          if (inherits(txt, "try-error") || is.null(txt)) {
+            return(NA_character_)
+          }
+          as.character(txt)
+        }
+
+        # --- Prompt builders ----------------------------------------------------------
+
+        .llm_prompt_disease_dyn <- function(
+          no_epidemic,
+          onset_med_mmdd,
+          rapid_med_mmdd,
+          peak_med_mmdd,
+          dur_med,
+          persona = "scientist"
+        ) {
+          style <- .llm_personality_style(persona)
+          if (isTRUE(no_epidemic)) {
+            sprintf(
+              "Write a 2–3 sentence block. Context: no epidemic observed (severity≈0). Typical season length ~%s days.
+Style: %s. Use mm/dd only, no DOY.",
+              dur_med,
+              style
+            )
+          } else {
+            sprintf(
+              "Write a 2–3 sentence block. Median timings: onset %s, rapid-rise %s, peak %s; season length ~%s days.
+Style: %s. Use mm/dd only, no DOY.",
+              onset_med_mmdd,
+              rapid_med_mmdd,
+              peak_med_mmdd,
+              dur_med,
+              style
+            )
+          }
+        }
+
+        .llm_prompt_sprays <- function(
+          no_epidemic,
+          avg_treatments,
+          pct_prev,
+          pct_on,
+          pct_late,
+          onset_med_mmdd,
+          rapid_med_mmdd,
+          persona = "scientist"
+        ) {
+          style <- .llm_personality_style(persona)
+          if (isTRUE(no_epidemic)) {
+            sprintf(
+              "Write a 2–3 sentence block. Inputs: average applications=%s; no epidemic observed (onset unavailable).
+Guidance: emphasize scouting and weather-based risk; suggest reducing prophylactic sprays.
+Style: %s. Use mm/dd only, no DOY.",
+              ifelse(is.finite(avg_treatments), round(avg_treatments, 1), "NA"),
+              style
+            )
+          } else {
+            sprintf(
+              "Write a 2–3 sentence block. Inputs: average applications=%s; first-spray vs onset: preventive=%s%%, on-time=%s%%, late=%s%%.
+Benchmarks: onset≈%s, rapid-rise≈%s (mm/dd).
+Provide timing guidance. Style: %s. Use mm/dd only, no DOY.",
+              ifelse(is.finite(avg_treatments), round(avg_treatments, 1), "NA"),
+              ifelse(is.na(pct_prev), "NA", pct_prev),
+              ifelse(is.na(pct_on), "NA", pct_on),
+              ifelse(is.na(pct_late), "NA", pct_late),
+              ifelse(is.na(onset_med_mmdd), "NA", onset_med_mmdd),
+              ifelse(is.na(rapid_med_mmdd), "NA", rapid_med_mmdd),
+              style
+            )
+          }
+        }
+
+        # --- Persona-aware section headers --------------------------------------------
+        .section_headers <- function(persona) {
+          switch(
+            tolower(persona[1]),
+            "scientist" = list(
+              overview = "🧐 OVERVIEW",
+              weather = "🌧️ WEATHER–DISEASE ASSOCIATIONS",
+              dynamics = "🍄 DISEASE DYNAMICS (CALENDAR DATES)",
+              sprays = "⚕️ FUNGICIDE PROGRAM & TIMING",
+              metrics = "🤖 MODEL PERFORMANCE",
+              yearly = "📅 YEARLY HIGHLIGHTS",
+              proverb = "💬 PROVERB"
+            ),
+            "extensionist" = list(
+              overview = "📋 ADVISORY NOTES",
+              weather = "🌦️ WEATHER & DISEASE LINK",
+              dynamics = "🌱 CROP & DISEASE CYCLE",
+              sprays = "💊 SPRAY PROGRAM",
+              metrics = "📊 MODEL CHECK",
+              yearly = "📅 FIELD SEASON HIGHLIGHTS",
+              proverb = "💬 FIELD WISDOM"
+            ),
+            "farmer" = list(
+              overview = "🌱 FIELD NOTES",
+              weather = "🌦️ WEATHER & DISEASE",
+              dynamics = "🍂 SEASON’S DISEASE STORY",
+              sprays = "💉 SPRAYING PRACTICES",
+              metrics = "🔍 HOW THE MODEL DID",
+              yearly = "📅 SEASON-BY-SEASON HIGHLIGHTS",
+              proverb = "💬 FARM SAYING"
+            ),
+            # fallback
+            list(
+              overview = "🧐 OVERVIEW",
+              weather = "🌧️ WEATHER–DISEASE ASSOCIATIONS",
+              dynamics = "🍄 DISEASE DYNAMICS (CALENDAR DATES)",
+              sprays = "⚕️ FUNGICIDE PROGRAM & TIMING",
+              metrics = "🤖 MODEL PERFORMANCE",
+              yearly = "📅 YEARLY HIGHLIGHTS",
+              proverb = "💬 PROVERB"
+            )
+          )
+        }
+
+        # --- WEATHER–DISEASE ASSOCIATIONS ---------------------------------------------
+        .llm_prompt_weather_assoc <- function(
+          cors,
+          no_epidemic,
+          persona = "scientist"
+        ) {
+          style <- .llm_personality_style(persona)
+
+          if (isTRUE(no_epidemic)) {
+            sprintf(
+              "Write 1–2 sentences. Context: no epidemic detected, so weather–disease correlations are negligible.
+Style: %s. Be concise, mm/dd dates if needed, no DOY.",
+              style
+            )
+          } else {
+            cors_text <- paste(
+              cors$var,
+              "(r=",
+              sprintf("%.2f", cors$r),
+              ")",
+              collapse = "; "
+            )
+            sprintf(
+              "Write 1–2 sentences summarizing weather–disease associations.
+Inputs: %s.
+Style: %s. Be concise, no DOY.",
+              cors_text,
+              style
+            )
+          }
+        }
+
+        get_llm_weather_assoc <- function(
+          apikey,
+          cors,
+          no_epidemic,
+          persona = "scientist"
+        ) {
+          prompt <- .llm_prompt_weather_assoc(cors, no_epidemic, persona)
+          .llm_chat(prompt, apikey, persona = persona, max_tokens = 120)
+        }
+
+        # --- MODEL PERFORMANCE / METRICS ----------------------------------------------
+        .llm_prompt_metrics <- function(metrics_df, persona = "scientist") {
+          style <- .llm_personality_style(persona)
+
+          if (is.null(metrics_df) || !nrow(metrics_df)) {
+            sprintf(
+              "Write 1 short sentence: validation metrics not available. Style: %s.",
+              style
+            )
+          } else {
+            # Extract a human-readable string
+            nm <- tolower(names(metrics_df))
+            vcol_idx <- which(nm %in% c("variable", "var", "name", "metric"))[1]
+            vcol <- if (!is.na(vcol_idx)) {
+              names(metrics_df)[vcol_idx]
+            } else {
+              "Variable"
+            }
+
+            num_df <- metrics_df[sapply(metrics_df, is.numeric)]
+            agg <- stats::aggregate(
+              num_df,
+              list(Variable = metrics_df[[vcol]]),
+              FUN = function(x) {
+                suppressWarnings(median(as.numeric(x), na.rm = TRUE))
+              }
+            )
+
+            lines <- apply(agg, 1, function(r) {
+              var <- as.character(r[["Variable"]])
+              rmse <- suppressWarnings(as.numeric(r[["RMSE"]]))
+              r2 <- suppressWarnings(as.numeric(r[["R2"]]))
+              bias <- suppressWarnings(as.numeric(r[["Bias"]]))
+              if (is.na(rmse) || is.na(r2)) {
+                paste0(var, ": insufficient validation signal")
+              } else {
+                dir <- if (!is.na(bias) && bias > 0) {
+                  "overestimates"
+                } else if (!is.na(bias)) {
+                  "underestimates"
+                } else {
+                  "bias unclear"
+                }
+                paste0(
+                  var,
+                  ": RMSE≈",
+                  round(rmse, 2),
+                  ", R²≈",
+                  round(r2, 2),
+                  " (model ",
+                  dir,
+                  ")"
+                )
+              }
+            })
+            metrics_text <- paste(lines, collapse = "; ")
+
+            sprintf(
+              "Write a 1–2 sentence summary of model–observation performance.
+Inputs: %s.
+Style: %s. Be concise, no DOY.",
+              metrics_text,
+              style
+            )
+          }
+        }
+
+        get_llm_weather_assoc <- function(
+          apikey,
+          cors,
+          no_epidemic,
+          persona = "scientist"
+        ) {
+          prompt <- .llm_prompt_weather_assoc(cors, no_epidemic, persona)
+          .llm_chat(prompt, apikey, persona = persona, max_tokens = 120)
+        }
+
+        get_llm_metrics <- function(apikey, metrics_df, persona = "scientist") {
+          prompt <- .llm_prompt_metrics(metrics_df, persona)
+          .llm_chat(prompt, apikey, persona = persona, max_tokens = 120)
+        }
+
+        get_llm_overview <- function(
+          apikey,
+          stats,
+          no_epidemic,
+          persona = "scientist"
+        ) {
+          style <- .llm_personality_style(persona)
+          base_prompt <- if (no_epidemic) {
+            sprintf(
+              "Write 1–2 sentences (no emojis). Dataset: no epidemic signal.
+Include mean yield≈%s kg/ha, Tx/Tn≈%s/%s °C, rainfall≈%s mm, leaf-wetness≈%s h.
+Style: %s.",
+              stats$avg_yield,
+              stats$mean_tx,
+              stats$mean_tn,
+              stats$mean_pr,
+              stats$mean_lw,
+              style
+            )
+          } else {
+            sprintf(
+              "Write 1–2 sentences (no emojis). Dataset: crop–disease dataset.
+Include avg severity≈%s%%, mean yield≈%s kg/ha, Tx/Tn≈%s/%s °C, rainfall≈%s mm, leaf-wetness≈%s h.
+Style: %s.",
+              stats$avg_sev,
+              stats$avg_yield,
+              stats$mean_tx,
+              stats$mean_tn,
+              stats$mean_pr,
+              stats$mean_lw,
+              style
+            )
+          }
+          .llm_chat(base_prompt, apikey, persona = persona, max_tokens = 90)
+        }
+
+        get_llm_proverb <- function(apikey, persona = "scientist") {
+          style <- .llm_personality_style(persona)
+          prompt <- sprintf(
+            "Invent a single-line, field-savvy proverb about crop disease timing and moisture.
+Max 10 words, no emojis. Style: %s.",
+            style
+          )
+          .llm_chat(prompt, apikey, persona = persona, max_tokens = 25)
+        }
+
+        # --- Overview / proverb -------------------------------------------------------
+        get_llm_overview <- function(
+          apikey,
+          stats,
+          no_epidemic,
+          persona = "scientist"
+        ) {
+          style <- .llm_personality_style(persona)
+
+          base_prompt <- if (no_epidemic) {
+            sprintf(
+              "Write 1–2 sentences (no emojis). Dataset: no epidemic signal.
+Include mean yield≈%s kg/ha, Tx/Tn≈%s/%s °C, rainfall≈%s mm, leaf-wetness≈%s h.
+Style: %s.",
+              stats$avg_yield,
+              stats$mean_tx,
+              stats$mean_tn,
+              stats$mean_pr,
+              stats$mean_lw,
+              style
+            )
+          } else {
+            sprintf(
+              "Write 1–2 sentences (no emojis). Dataset: crop–disease dataset.
+Include avg severity≈%s%%, mean yield≈%s kg/ha, Tx/Tn≈%s/%s °C, rainfall≈%s mm, leaf-wetness≈%s h.
+Style: %s.",
+              stats$avg_sev,
+              stats$avg_yield,
+              stats$mean_tx,
+              stats$mean_tn,
+              stats$mean_pr,
+              stats$mean_lw,
+              style
+            )
+          }
+
+          .llm_chat(base_prompt, apikey, persona = persona, max_tokens = 90)
+        }
+
+        # WEATHER–DISEASE ASSOCIATIONS
+        llm_weather <- get_llm_weather_assoc(
+          apikey,
+          cors,
+          no_epidemic,
+          persona = personality
+        )
+        block_climate_cor <- if (.has_text(llm_weather)) {
+          llm_weather
+        } else if (no_epidemic) {
+          "No disease was detected across seasons; weather–disease correlations were not computed."
+        } else {
+          paste0(
+            "Weather–disease associations: ",
+            paste(
+              cors$var,
+              "(r=",
+              sprintf("%.2f", cors$r),
+              ")",
+              collapse = "; "
+            ),
+            "."
+          )
+        }
+
+        # MODEL PERFORMANCE
+        llm_metrics <- get_llm_metrics(
+          apikey,
+          metrics_df,
+          persona = personality
+        )
+        block_metrics <- if (.has_text(llm_metrics)) {
+          llm_metrics
+        } else {
+          paste0(
+            "Model–observation performance:",
+            summarize_metrics(metrics_df)
+          )
+        }
+
+        # --- DISEASE DYNAMICS via LLM (fallback to rule-based) ---
+
+        dd_prompt <- .llm_prompt_disease_dyn(
+          no_epidemic = no_epidemic,
+          onset_med_mmdd = onset_med_mmdd,
+          rapid_med_mmdd = rapid_med_mmdd,
+          peak_med_mmdd = peak_med_mmdd,
+          dur_med = dur_med
+        )
+        dd_txt <- .llm_chat(
+          dd_prompt,
+          apikey,
+          persona = personality,
+          max_tokens = 180
+        )
+
+        block_disease_dyn <- if (!is.na(dd_txt)) {
+          dd_txt
+        } else if (no_epidemic) {
+          paste0(
+            "No epidemic signal was detected (severity remained at or near zero). ",
+            "A typical growing season spanned ~",
+            dur_med,
+            " days. ",
+            "Monitor canopy wetness and night temperatures; if disease pressure emerges in future seasons, ",
+            "onset/peak timing will be reported here."
+          )
+        } else {
+          paste0(
+            "Epidemics typically began around ",
+            onset_med_mmdd,
+            ", accelerated in ",
+            rapid_med_mmdd,
+            ", and peaked near ",
+            peak_med_mmdd,
+            ". ",
+            "A typical growing season spanned ~",
+            dur_med,
+            " days."
+          )
+        }
+
+        # --- FUNGICIDE PROGRAM & TIMING via LLM (fallback to rule-based) ---
+        avg_tr_num <- suppressWarnings(mean(count_treatments(management_data)))
+
+        sp_prompt <- .llm_prompt_sprays(
+          no_epidemic = no_epidemic,
+          avg_treatments = avg_tr_num,
+          pct_prev = pct_prev,
+          pct_on = pct_on,
+          pct_late = pct_late,
+          onset_med_mmdd = onset_med_mmdd,
+          rapid_med_mmdd = rapid_med_mmdd
+        )
+        sp_txt <- .llm_chat(
+          sp_prompt,
+          apikey,
+          persona = personality,
+          max_tokens = 180
+        )
+
+        block_sprays <- if (!is.na(sp_txt)) {
+          sp_txt
+        } else if (no_epidemic) {
+          paste0(
+            "Fungicide program averaged ",
+            round(avg_tr_num, 1),
+            " applications. ",
+            "Onset was not detected, so timing classification is not applicable. ",
+            "Disease pressure was absent; consider reducing or omitting prophylactic sprays and emphasize scouting and weather-based risk monitoring."
+          )
+        } else {
+          paste0(
+            "Fungicide program averaged ",
+            round(avg_tr_num, 1),
+            " applications. ",
+            "First application timing relative to onset: preventive ",
+            pct_prev,
+            "%, on-time ",
+            pct_on,
+            "%, late ",
+            pct_late,
+            "%."
+          )
+        }
+
+        no_epidemic <- !any(summary_df$DiseaseSeverity > 0, na.rm = TRUE)
+
+        avg_treatments <- count_treatments(management_data)
+
+        stats_list <- list(
+          avg_sev = avg_sev,
+          avg_yield = avg_yield,
+          mean_tx = mean_tx,
+          mean_tn = mean_tn,
+          mean_pr = mean_pr,
+          mean_lw = mean_lw
+        )
+
+        llm_overview <- get_llm_overview(
+          apikey,
+          persona = personality,
+          stats_list,
+          no_epidemic
+        )
+
+        block_overview <- if (isTRUE(no_epidemic)) {
+          if (.has_text(llm_overview)) {
+            llm_overview
+          } else {
+            paste0(
+              "Across seasons, average disease severity was ",
+              avg_sev,
+              "%, with mean yield around ",
+              avg_yield,
+              " kg/ha. Conditions averaged ",
+              mean_tx,
+              "/",
+              mean_tn,
+              " °C, ~",
+              mean_pr,
+              " mm rainfall, and ~",
+              mean_lw,
+              " h leaf-wetness. ",
+              "No epidemic signal was detected."
+            )
+          }
+        } else {
+          if (.has_text(llm_overview)) {
+            llm_overview
+          } else {
+            paste0(
+              "Across seasons, average disease severity was ",
+              avg_sev,
+              "%, with mean yield around ",
+              avg_yield,
+              " kg/ha. Conditions averaged ",
+              mean_tx,
+              "/",
+              mean_tn,
+              " °C, ~",
+              mean_pr,
+              " mm rainfall, and ~",
+              mean_lw,
+              " h leaf-wetness, creating recurrent infection windows."
+            )
+          }
+        }
+
+        timing_advice <- if (no_epidemic) {
+          "Disease pressure was absent; consider reducing or omitting prophylactic sprays and emphasize scouting and weather-based risk monitoring."
+        } else if (!is.na(pct_prev) && pct_prev >= 60) {
+          paste0(
+            "Applications were mostly preventive; consider delaying the first spray to just precede onset (≈ ",
+            onset_med_mmdd,
+            ") and concentrate coverage during sustained wet-canopy periods."
+          )
+        } else if (!is.na(pct_late) && pct_late >= 30) {
+          paste0(
+            "Applications often lagged the epidemic; advance the first spray to just before onset (≈ ",
+            onset_med_mmdd,
+            ") and avoid long gaps during the rapid increase window (≈ ",
+            rapid_med_mmdd,
+            ")."
+          )
+        } else {
+          paste0(
+            "Timing broadly aligned with onset; keep the first spray just before onset (≈ ",
+            onset_med_mmdd,
+            ") and tighten intervals through the rapid rise window (≈ ",
+            rapid_med_mmdd,
+            ")."
+          )
+        }
+
+        # Metrics block
+        block_metrics <- paste0(
+          "Model–observation performance:",
+          summarize_metrics(metrics_df)
+        )
+
+        # Yearly highlights (use mm/dd everywhere)
+        per_year <- summary_df |>
+          dplyr::group_by(GrowingSeason) |>
+          dplyr::summarise(
+            sev_pct = safe_round(mean(DiseaseSeverity, na.rm = TRUE) * 100, 1),
+            y_act = safe_round(mean(YieldActual, na.rm = TRUE), 1),
+            loss_pct = safe_round(mean(YieldLossPerc, na.rm = TRUE), 1),
+            .groups = "drop"
+          ) |>
+          dplyr::left_join(
+            phases[, c(
+              "GrowingSeason",
+              "onset_date",
+              "rapid_date",
+              "peak_date",
+              "peak_sev"
+            )],
+            by = "GrowingSeason"
+          ) |>
+          dplyr::left_join(
+            spray_df[, c("GrowingSeason", "first_spray_date", "timing_class")],
+            by = "GrowingSeason"
+          )
+
+        badge_for <- function(gs) {
+          if (no_epidemic) {
+            ""
+          } else if (isTRUE(gs == year_max)) {
+            "[highest severity]"
+          } else if (isTRUE(gs == year_min)) {
+            "[lowest severity]"
+          } else {
+            ""
+          }
+        }
+
+        fmt_year_line <- function(r) {
+          gs <- r[["GrowingSeason"]]
+
+          on_d <- r[["onset_date"]]
+          rr_d <- r[["rapid_date"]]
+          pk_d <- r[["peak_date"]]
+          pk_s <- suppressWarnings(as.numeric(r[["peak_sev"]]))
+
+          py_d <- r[["peak_yield_date"]]
+          py_v <- suppressWarnings(as.numeric(r[["peak_yield_value"]]))
+
+          fs_d <- r[["first_spray_date"]]
+          fs_c <- r[["timing_class"]]
+
+          parts <- c(
+            sprintf(
+              "• %s: %s%% severity; %s kg/ha (%s%% loss).",
+              gs,
+              r[["sev_pct"]],
+              r[["y_act"]],
+              r[["loss_pct"]]
+            )
+          )
+
+          # disease timing (add only if available)
+          if (.has_text(on_d)) {
+            parts <- c(parts, paste0(" Onset ", on_d))
+          }
+          if (.has_text(rr_d)) {
+            parts <- c(parts, paste0(", rapid rise ~", rr_d))
+          }
+          if (.has_text(pk_d)) {
+            if (isTRUE(!is.na(pk_s))) {
+              parts <- c(
+                parts,
+                paste0(", peak ", pk_d, " (", round(pk_s, 1), "%)")
+              )
+            } else {
+              parts <- c(parts, paste0(", peak ", pk_d))
+            }
+          }
+
+          # peak yield (date + value), NA-safe
+          if (.has_text(py_d) && isTRUE(!is.na(py_v))) {
+            parts <- c(
+              parts,
+              paste0(". Peak yield ", round(py_v, 1), " kg/ha on ", py_d)
+            )
+          }
+
+          # first spray
+          if (.has_text(fs_d)) {
+            if (.has_text(fs_c)) {
+              parts <- c(parts, paste0(". First spray ", fs_d, " (", fs_c, ")"))
+            } else {
+              parts <- c(parts, paste0(". First spray ", fs_d))
+            }
+          }
+
+          paste0(paste(parts, collapse = ""), " ", badge_for(gs))
+        }
+
+        pick_ids <- unique(na.omit(c(
+          per_year$GrowingSeason[which.max(per_year$sev_pct)],
+          per_year$GrowingSeason[which.min(per_year$sev_pct)]
+        )))
+        if (length(pick_ids) < 4) {
+          remain <- setdiff(per_year$GrowingSeason, pick_ids)
+          pick_ids <- c(pick_ids, tail(sort(remain), 4 - length(pick_ids)))
+        }
+        hl_years <- per_year[
+          match(pick_ids, per_year$GrowingSeason),
+          ,
+          drop = FALSE
+        ]
+        yearly_lines <- if (nrow(hl_years)) {
+          vapply(
+            seq_len(nrow(hl_years)),
+            function(i) fmt_year_line(hl_years[i, ]),
+            FUN.VALUE = character(1)
+          )
+        } else {
+          "• No seasonal highlights."
+        }
+
+        # Proverb
+        proverb_llm <- get_llm_proverb(apikey)
+        proverb <- if (.has_text(proverb_llm)) {
+          proverb_llm
+        } else {
+          sample(
+            c(
+              "Spray before the rise, harvest before the fall.",
+              "Where wet nights linger, rust remembers.",
+              "A timely dose saves a season.",
+              "Moisture writes what management must read."
+            ),
+            1
+          )
+        }
+
+        # --- In report assembly -------------------------------------------------------
+        headers <- .section_headers(personality)
+
+        # ---------------- Final message with persona headers ----------------
+        msg <- paste(
+          "\n==================== 📊 FraNchEstYN Decision-support diagnostic 📊 ====================\n",
+          headers$overview,
+          "\n",
+          block_overview,
+          "\n\n",
+          headers$weather,
+          "\n",
+          block_climate_cor,
+          "\n\n",
+          headers$dynamics,
+          "\n",
+          block_disease_dyn,
+          "\n\n",
+          headers$sprays,
+          "\n",
+          block_sprays,
+          "\n",
+          timing_advice,
+          "\n\n",
+          headers$metrics,
+          "\n",
+          block_metrics,
+          "\n\n",
+          headers$yearly,
+          "\n",
+          paste(yearly_lines, collapse = "\n"),
+          "\n\n",
+          headers$proverb,
+          "\n",
+          proverb,
+          "\n",
+          "======================================================================================\n",
+          sep = ""
+        )
+
+        cat(msg)
+        result$decision_support_message <- msg
+      },
+      error = function(e) {
+        warning(
+          "Decision-support message could not be generated: ",
+          conditionMessage(e),
+          call. = FALSE
+        )
       }
-
-      # --- In report assembly -------------------------------------------------------
-      headers <- .section_headers(personality)
-
-      # ---------------- Final message with persona headers ----------------
-      msg <- paste(
-        "\n==================== 📊 FraNchEstYN Decision-support diagnostic 📊 ====================\n",
-        headers$overview,
-        "\n",
-        block_overview,
-        "\n\n",
-        headers$weather,
-        "\n",
-        block_climate_cor,
-        "\n\n",
-        headers$dynamics,
-        "\n",
-        block_disease_dyn,
-        "\n\n",
-        headers$sprays,
-        "\n",
-        block_sprays,
-        "\n",
-        timing_advice,
-        "\n\n",
-        headers$metrics,
-        "\n",
-        block_metrics,
-        "\n\n",
-        headers$yearly,
-        "\n",
-        paste(yearly_lines, collapse = "\n"),
-        "\n\n",
-        headers$proverb,
-        "\n",
-        proverb,
-        "\n",
-        "======================================================================================\n",
-        sep = ""
-      )
-
-      cat(msg)
-      result$decision_support_message <- msg
-    })
+    )
   }
 
   # ---- RETURN EVERYTHING -------------------------------------------------------
