@@ -124,6 +124,13 @@
 #' - Column matching is forgiving (case-insensitive, ignores underscores/dashes).
 #' - If \code{calibration="none"} and \code{reference_data} is missing,
 #'   a dummy dataset is created for compatibility.
+#' - All backend inputs and outputs live in a per-run temporary directory that
+#'   is removed on exit; nothing is written to the installed package. Set
+#'   \code{options(franchestyn.keep_run_dir = TRUE)} to keep it for debugging.
+#' - On Linux/macOS the .NET 8 runtime is located via
+#'   \code{options(franchestyn.dotnet = "/path/to/dotnet")} or the
+#'   \code{FRANCHESTYN_DOTNET} environment variable, then \code{DOTNET_ROOT},
+#'   \code{PATH} and the usual install locations.
 #'
 #' @return A list with elements:
 #'   \itemize{
@@ -271,43 +278,45 @@ franchestyn <- function(
 
     backend_args <- NULL
   } else {
-    backend <- Sys.which("dotnet")
-
-    if (!nzchar(backend)) {
-      stop(
-        "The .NET runtime was not found. Install the .NET 8 runtime ",
-        "and ensure 'dotnet' is available on PATH.",
-        call. = FALSE
-      )
-    }
-
-    # check that the correct runtime is installed before trying to launch
-    runtime_output <- system2(
-      backend,
-      "--list-runtimes",
-      stdout = TRUE,
-      stderr = TRUE
-    )
-
-    if (!any(grepl("^Microsoft\\.NETCore\\.App 8\\.", runtime_output))) {
-      stop(
-        "FraNchEstYN requires the .NET 8 runtime. ",
-        "Install .NET 8 and try again.",
-        call. = FALSE
-      )
-    }
-
     dll <- file.path(bin_dir, "FraNchEstYN.dll")
 
     if (!file.exists(dll)) {
       stop("FraNchEstYN.dll not found in: ", bin_dir, call. = FALSE)
     }
 
+    # PATH alone is not enough on macOS (GUI apps such as RStudio do not inherit
+    # the shell PATH), so this also checks DOTNET_ROOT, the user override and
+    # the usual install locations, and verifies the .NET 8 runtime on each.
+    backend <- .franchestyn_find_dotnet(required_major = 8L)
     backend_args <- dll
   }
 
+  # ---- per-run scratch directory ---------------------------------------------
+  # The installed package library can be read-only and can be shared by several
+  # R sessions, so nothing is written under system.file(). The layout mirrors
+  # the installed one (bin/ plus ../calibratedParameters), so a backend that
+  # resolves relative paths against its working directory behaves the same:
+  #   run_dir/work                   backend working dir (outputs/ lives here)
+  #   run_dir/calibratedParameters   "../calibratedParameters" seen from work/
+  #   run_dir/files/...              inputs written by this function
+  run_dir <- tempfile("franchestyn_")
+  dir.create(run_dir, recursive = TRUE, showWarnings = FALSE)
+  if (!dir.exists(run_dir)) {
+    stop("Could not create a temporary directory: ", run_dir, call. = FALSE)
+  }
+  run_dir <- normalizePath(run_dir, winslash = "/", mustWork = TRUE)
+  if (isTRUE(getOption("franchestyn.keep_run_dir", FALSE))) {
+    message("Run files kept in: ", run_dir)
+  } else {
+    on.exit(unlink(run_dir, recursive = TRUE, force = TRUE), add = TRUE)
+  }
+  work_dir <- file.path(run_dir, "work")
+  calib_dir <- file.path(run_dir, "calibratedParameters")
+  dir.create(work_dir, recursive = TRUE, showWarnings = FALSE)
+  dir.create(calib_dir, recursive = TRUE, showWarnings = FALSE)
+
   ## ------------------- CROP MODEL HANDLING ------------------- ##
-  crop_model_dir <- file.path(dirname(bin_dir), "files", "cropModel")
+  crop_model_dir <- file.path(run_dir, "files", "cropModel")
   dir.create(crop_model_dir, recursive = TRUE, showWarnings = FALSE)
 
   cropModel_flag <- "no"
@@ -466,17 +475,19 @@ franchestyn <- function(
     cropModel_flag <- "yes"
   }
 
-  output_dir <- file.path(bin_dir, "outputs")
+  output_dir <- file.path(work_dir, "outputs")
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
-  list_files_out <- list.files(
-    output_dir,
-    pattern = "\\.csv$",
-    full.names = TRUE
-  )
-
-  if (length(list_files_out) > 0) {
-    file.remove(list_files_out)
+  # Older backends ignore 'outputDir' / 'calibratedParametersDir' and write next
+  # to the installed binaries. Clear stale CSVs there (best effort, the folder
+  # may be read-only) so the fallback in the OUTPUTS step cannot pick them up.
+  legacy_output_dir <- file.path(bin_dir, "outputs")
+  legacy_calib_dir <- file.path(dirname(bin_dir), "calibratedParameters")
+  for (legacy_dir in c(legacy_output_dir, legacy_calib_dir)) {
+    stale <- list.files(legacy_dir, pattern = "\\.csv$", full.names = TRUE)
+    if (length(stale)) {
+      try(suppressWarnings(file.remove(stale)), silent = TRUE)
+    }
   }
 
   # Check weather_data
@@ -560,14 +571,14 @@ franchestyn <- function(
 
   # Subfolders
   input_weather_dir <- file.path(
-    dirname(bin_dir),
+    run_dir,
     "files",
     "weather",
     tolower(timestep)
   )
-  input_parameters_dir <- file.path(dirname(bin_dir), "files", "parameters")
-  input_reference_dir <- file.path(dirname(bin_dir), "files", "reference")
-  input_management_dir <- file.path(dirname(bin_dir), "files", "management")
+  input_parameters_dir <- file.path(run_dir, "files", "parameters")
+  input_reference_dir <- file.path(run_dir, "files", "reference")
+  input_management_dir <- file.path(run_dir, "files", "management")
 
   dir.create(input_weather_dir, recursive = TRUE, showWarnings = FALSE)
   dir.create(input_parameters_dir, recursive = TRUE, showWarnings = FALSE)
@@ -1053,11 +1064,19 @@ franchestyn <- function(
         normalizePath(crop_model_dir, winslash = "/", mustWork = FALSE)
       } else {
         ""
-      }
+      },
+      # Where the backend should write its results. Backends that predate these
+      # keys ignore them and use paths relative to the working directory.
+      outputDir = normalizePath(output_dir, winslash = "/", mustWork = FALSE),
+      calibratedParametersDir = normalizePath(
+        calib_dir,
+        winslash = "/",
+        mustWork = FALSE
+      )
     )
   )
 
-  config_path <- file.path(dirname(bin_dir), "FraNchEstYNConfig.json")
+  config_path <- file.path(run_dir, "FraNchEstYNConfig.json")
   jsonlite::write_json(config, config_path, auto_unbox = TRUE, pretty = TRUE)
 
   # random spooky icons for variety
@@ -1121,7 +1140,7 @@ franchestyn <- function(
   p <- processx::process$new(
     command = exe,
     args = args,
-    wd = bin_dir,
+    wd = work_dir,
     stdout = "|",
     stderr = "|"
   )
@@ -1161,7 +1180,9 @@ franchestyn <- function(
     stop(
       "FraNchEstYN backend failed with exit status: ",
       exit_status,
-      ". Check the output above for details.",
+      ". Check the output above for details. ",
+      "Set options(franchestyn.keep_run_dir = TRUE) to keep the run files ",
+      "for inspection.",
       call. = FALSE
     )
   }
@@ -1177,6 +1198,24 @@ franchestyn <- function(
     pattern = "\\.csv$",
     full.names = TRUE
   )
+
+  if (length(list_files_out) == 0) {
+    legacy_files <- list.files(
+      legacy_output_dir,
+      pattern = "\\.csv$",
+      full.names = TRUE
+    )
+    if (length(legacy_files)) {
+      warning(
+        "The FraNchEstYN backend wrote its results next to the installed ",
+        "binaries instead of 'outputDir'. Update the backend to honour ",
+        "'outputDir' and 'calibratedParametersDir'; concurrent runs can ",
+        "overwrite each other until then.",
+        call. = FALSE
+      )
+      list_files_out <- legacy_files
+    }
+  }
 
   if (length(list_files_out) == 0) {
     stop(
@@ -1257,10 +1296,18 @@ franchestyn <- function(
 
     ## ---- load calibrated parameter files ------------------------------------
     list_files_out_param <- list.files(
-      file.path(dirname(bin_dir), "calibratedParameters"),
+      calib_dir,
       pattern = "\\.csv$",
       full.names = TRUE
     )
+    if (!length(list_files_out_param)) {
+      # legacy backend location (see the OUTPUTS step)
+      list_files_out_param <- list.files(
+        legacy_calib_dir,
+        pattern = "\\.csv$",
+        full.names = TRUE
+      )
+    }
 
     param_df <- if (length(list_files_out_param)) {
       do.call(
@@ -3042,4 +3089,171 @@ validate_parameter_ranges <- function(...) {
   }
 
   invisible(TRUE)
+}
+
+
+#' Locate a usable `dotnet` host (internal)
+#'
+#' Search order: \code{options(franchestyn.dotnet)} or the
+#' \code{FRANCHESTYN_DOTNET} environment variable (used exclusively when set),
+#' then \code{DOTNET_ROOT*}, \code{PATH} and well-known install locations. The
+#' first candidate that reports a Microsoft.NETCore.App runtime with the
+#' required major version is returned.
+#'
+#' @param required_major Integer major version of the .NET runtime.
+#' @return Path to the \code{dotnet} executable (stops with a detailed message
+#'   when none is usable).
+#' @keywords internal
+.franchestyn_find_dotnet <- function(required_major = 8L) {
+  exe_name <- if (.Platform$OS.type == "windows") "dotnet.exe" else "dotnet"
+  home <- path.expand("~")
+
+  explicit <- getOption("franchestyn.dotnet", default = "")
+  if (!is.character(explicit) || length(explicit) != 1L || is.na(explicit)) {
+    explicit <- ""
+  }
+  if (!nzchar(explicit)) {
+    explicit <- Sys.getenv("FRANCHESTYN_DOTNET", unset = "")
+  }
+
+  if (nzchar(explicit)) {
+    # a user override is authoritative: never fall through to other installs
+    candidates <- path.expand(explicit)
+    # accept a DOTNET_ROOT-style directory as well as the executable itself
+    if (dir.exists(candidates)) {
+      candidates <- file.path(candidates, exe_name)
+    }
+  } else {
+    roots <- unname(Sys.getenv(
+      c("DOTNET_ROOT", "DOTNET_ROOT_ARM64", "DOTNET_ROOT_X64"),
+      unset = ""
+    ))
+    roots <- roots[nzchar(roots)]
+
+    sysname <- Sys.info()[["sysname"]]
+    known <- if (identical(sysname, "Darwin")) {
+      c(
+        "/usr/local/share/dotnet/dotnet", # Microsoft installer
+        "/opt/homebrew/bin/dotnet", # Homebrew, Apple silicon
+        "/opt/homebrew/opt/dotnet/libexec/dotnet",
+        "/usr/local/bin/dotnet", # Homebrew, Intel
+        file.path(home, ".dotnet", "dotnet") # dotnet-install script
+      )
+    } else if (identical(sysname, "Linux")) {
+      c(
+        "/usr/lib/dotnet/dotnet", # Debian / Ubuntu
+        "/usr/lib64/dotnet/dotnet", # Fedora / RHEL
+        "/usr/share/dotnet/dotnet", # Microsoft packages
+        "/usr/local/share/dotnet/dotnet",
+        "/opt/dotnet/dotnet",
+        "/snap/bin/dotnet",
+        file.path(home, ".dotnet", "dotnet")
+      )
+    } else {
+      character()
+    }
+
+    candidates <- c(
+      if (length(roots)) file.path(roots, exe_name),
+      unname(Sys.which("dotnet")),
+      known
+    )
+  }
+
+  candidates <- unique(candidates[nzchar(candidates)])
+  candidates <- candidates[file.exists(candidates) & !dir.exists(candidates)]
+  candidates <- candidates[file.access(candidates, 1L) == 0L]
+  # symlinks (e.g. /opt/homebrew/bin/dotnet) must not be probed twice
+  candidates <- candidates[
+    !duplicated(normalizePath(candidates, mustWork = FALSE))
+  ]
+
+  report <- character()
+  for (cand in candidates) {
+    majors <- .franchestyn_dotnet_majors(cand)
+    if (required_major %in% majors) {
+      return(cand)
+    }
+    report <- c(
+      report,
+      sprintf(
+        "  %s: %s",
+        cand,
+        if (length(majors)) {
+          paste0("runtime(s) ", paste(sort(unique(majors)), collapse = ", "))
+        } else {
+          "no runtimes reported"
+        }
+      )
+    )
+  }
+
+  install_hint <- sprintf(
+    paste0(
+      "Install the .NET %1$d runtime from ",
+      "https://dotnet.microsoft.com/download/dotnet/%1$d.0, or point to an ",
+      "existing install with options(franchestyn.dotnet = \"/path/to/dotnet\") ",
+      "or the FRANCHESTYN_DOTNET environment variable."
+    ),
+    required_major
+  )
+
+  if (nzchar(explicit) && !length(candidates)) {
+    stop(
+      "The 'dotnet' given by options(franchestyn.dotnet) / FRANCHESTYN_DOTNET ",
+      "does not exist or is not executable: ",
+      explicit,
+      call. = FALSE
+    )
+  }
+  if (!length(candidates)) {
+    stop(
+      "No 'dotnet' executable was found (searched DOTNET_ROOT, PATH and the ",
+      "usual install locations). ",
+      install_hint,
+      call. = FALSE
+    )
+  }
+  stop(
+    sprintf(
+      "FraNchEstYN requires the .NET %d runtime. Found:\n",
+      required_major
+    ),
+    paste(report, collapse = "\n"),
+    "\n",
+    install_hint,
+    call. = FALSE
+  )
+}
+
+#' Major versions of the Microsoft.NETCore.App runtimes a `dotnet` reports
+#' (internal)
+#'
+#' @param dotnet Path to a `dotnet` executable.
+#' @return Integer vector of major versions; empty if the host cannot be run.
+#' @keywords internal
+.franchestyn_dotnet_majors <- function(dotnet) {
+  out <- tryCatch(
+    suppressWarnings(system2(
+      dotnet,
+      "--list-runtimes",
+      stdout = TRUE,
+      stderr = TRUE
+    )),
+    error = function(e) character()
+  )
+  status <- attr(out, "status")
+  if (!is.null(status) && !identical(as.integer(status), 0L)) {
+    return(integer())
+  }
+  hits <- regmatches(
+    out,
+    regexec("^Microsoft\\.NETCore\\.App ([0-9]+)\\.", out)
+  )
+  majors <- vapply(
+    hits,
+    function(h) if (length(h) == 2L) h[2L] else NA_character_,
+    character(1)
+  )
+  as.integer(majors[!is.na(majors)])
 }
