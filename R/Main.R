@@ -348,13 +348,15 @@ franchestyn <- function(
       nms %in% c("gdd", "thermaltime", "thermal_time")
     ][1]
 
-    if (is.null(year_col) || is.null(doy_col)) {
+    if (is.na(year_col) || is.na(doy_col)) {
       stop("❌ cropModel_data must contain 'year' and 'doy' columns")
     }
-    if (is.null(agb_col) || is.null(yld_col)) {
+
+    if (is.na(agb_col) || is.na(yld_col)) {
       stop("❌ cropModel_data must contain both 'AGB' and 'Yield' columns")
     }
-    if (is.null(fint_col) && is.null(lai_col)) {
+
+    if (is.na(fint_col) && is.na(lai_col)) {
       stop("❌ cropModel_data must contain either 'fInt' or 'LAI' column")
     }
 
@@ -466,6 +468,16 @@ franchestyn <- function(
 
   output_dir <- file.path(bin_dir, "outputs")
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+
+  list_files_out <- list.files(
+    output_dir,
+    pattern = "\\.csv$",
+    full.names = TRUE
+  )
+
+  if (length(list_files_out) > 0) {
+    file.remove(list_files_out)
+  }
 
   list_files_out <- list.files(
     path = output_dir,
