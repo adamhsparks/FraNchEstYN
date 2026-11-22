@@ -1,26 +1,26 @@
 {
   "settings": {
-    "startYear": 2023,
-    "endYear": 2024,
+    "startYear": 1980,
+    "endYear": 1981,
     "sites": [
-      "Mantova"
+      "FIJO0QXX"
     ],
-    "isCalibration": "false",
-    "calibrationVariable": "none",
+    "isCalibration": "true",
+    "calibrationVariable": "all",
     "varieties": [
       "Generic"
     ],
     "cropModel": "no",
     "simplexes": 3,
     "disease": "thisDisease",
-    "iterations": 333,
-    "weatherTimeStep": "hourly"
+    "iterations": 111,
+    "weatherTimeStep": "daily"
   },
   "paths": {
     "weatherDir": "files/weather",
     "referenceFilePaths": "files/reference",
     "paramFile": "files/parameters/franchestynParameters.csv",
     "sowingFile": "files/management/sowing.csv",
-    "cropModelFile": "files/cropModel/"
+    "cropModelFile": ""
   }
 }
