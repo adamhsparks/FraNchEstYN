@@ -1382,6 +1382,35 @@ franchestyn <- function(
     updatedCropParameters <- update_param_list(cropParameters, param_df)
     updatedDiseaseParameters <- update_param_list(diseaseParameters, param_df)
 
+    # update_param_list() silently returns its input when it cannot apply
+    # anything, which would hand back the defaults as if they were calibrated.
+    if (!length(list_files_out_param)) {
+      warning(
+        "Calibration was requested but no calibrated parameter files were ",
+        "found in '",
+        calib_dir,
+        "' or '",
+        legacy_calib_dir,
+        "'. The returned ",
+        "parameters are the inputs, not calibrated values.",
+        call. = FALSE
+      )
+    } else if (
+      identical(updatedCropParameters, cropParameters) &&
+        identical(updatedDiseaseParameters, diseaseParameters)
+    ) {
+      warning(
+        "Calibrated parameter files were read (",
+        paste(basename(list_files_out_param), collapse = ", "),
+        ") but none of their values changed the parameters. Expected a ",
+        "parameter-name column ('parameter' or 'param') and a value column ",
+        "('value' or 'val'); found: ",
+        paste(names(param_df), collapse = ", "),
+        ". The returned parameters equal the inputs.",
+        call. = FALSE
+      )
+    }
+
     # If we're calibrating 'disease' only, ignore crop parameters
     if (tolower(calibrationModel) == "disease") {
       updatedCropParameters <- NULL
