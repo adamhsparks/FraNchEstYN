@@ -2837,12 +2837,6 @@ Style: %s.",
 #' @param group_cols character vector of grouping columns
 #' @return tibble with one row per group/variable
 #' @keywords internal
-#' Compute error metrics for model vs reference variables (internal)
-#'
-#' @param outputs_df data.frame with simulation and reference columns
-#' @param group_cols character vector of grouping columns
-#' @return tibble with one row per group/variable
-#' @keywords internal
 compute_error_metrics <- function(
   outputs_df,
   group_cols = c("GrowingSeason", "Site", "Variety", "file")

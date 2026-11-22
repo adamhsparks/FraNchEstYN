@@ -8,7 +8,7 @@ df_to_parameters(
   df,
   atomic_if_missing_meta = FALSE,
   range_pct = 0.1,
-  zero_buffer = 1e-06
+  zero_buffer = 0.000001
 )
 }
 \arguments{

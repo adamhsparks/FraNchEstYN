@@ -18,7 +18,7 @@ A data frame with 8 variables:
 }
 }
 \source{
-Omara et al. (2018). \url{https://ejp.journals.ekb.eg/article_92381_3f2e26b0341fd17294835a460fad0c50.pdf}
+Omara et al. (2016). \url{https://ejp.journals.ekb.eg/article_92381_3f2e26b0341fd17294835a460fad0c50.pdf}
 }
 \usage{
 reference_egypt
@@ -26,7 +26,7 @@ reference_egypt
 \description{
 This dataset provides reference observations for wheat stripe rust trials
 conducted in Sharkiya, Egypt. It includes disease severity assessments and
-attainable vs. actual yield data digitized from Omara et al. (2018), available at
+attainable vs. actual yield data digitized from Omara et al. (2016), available at
 [Losses Assessment in some Egyptian Wheat Cultivars caused by Stripe Rust Pathogen *Puccinia striiformis*](https://ejp.journals.ekb.eg/article_92381_3f2e26b0341fd17294835a460fad0c50.pdf).
 }
 \examples{

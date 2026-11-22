@@ -10,25 +10,14 @@ compute_error_metrics(
 )
 }
 \arguments{
-\item{outputs_df}{data.frame with simulation and reference columns}
+\item{outputs_df}{data.frame with sim & ref columns}
 
 \item{group_cols}{character vector of grouping columns}
 }
 \value{
 tibble with one row per group/variable
-
-tibble with one row per group/variable
 }
 \description{
 Compute error metrics for model vs reference variables (internal)
 }
-\keyword{(internal)}
-\keyword{Compute}
-\keyword{error}
-\keyword{for}
 \keyword{internal}
-\keyword{metrics}
-\keyword{model}
-\keyword{reference}
-\keyword{variables}
-\keyword{vs}

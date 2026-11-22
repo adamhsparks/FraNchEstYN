@@ -7,13 +7,17 @@ export(enable_calibration_only)
 export(franchestyn)
 export(parameters_to_df)
 export(set_calibration_flags)
-importFrom(stats,cor)
-importFrom(stats,end)
-importFrom(stats,median)
-importFrom(stats,na.omit)
-importFrom(stats,start)
-importFrom(utils,flush.console)
-importFrom(utils,head)
-importFrom(utils,read.csv)
-importFrom(utils,tail)
-importFrom(utils,write.table)
+importFrom(stats,
+  cor,
+  end,
+  median,
+  na.omit,
+  start
+)
+importFrom(utils,
+  flush.console,
+  head,
+  read.csv,
+  tail,
+  write.table
+)

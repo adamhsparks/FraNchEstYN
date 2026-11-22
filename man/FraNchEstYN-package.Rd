@@ -24,6 +24,7 @@ Useful links:
 
 Authors:
 \itemize{
+  \item Simone Bregaglio \email{simone.bregaglio@crea.gov.it}
   \item Roberto Ferrise \email{roberto.ferrise@unifi.it}
 }
 
