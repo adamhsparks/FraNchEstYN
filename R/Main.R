@@ -361,7 +361,7 @@ franchestyn <- function(
     }
 
     # --- LAI → fInt conversion (Beer’s law) ---
-    if (is.null(fint_col) && !is.null(lai_col)) {
+    if (is.na(fint_col) && !is.na(lai_col)) {
       cropModel_data$fInt <- 1 - exp(-k * cropModel_data[[lai_col]])
       fint_col <- "fInt"
       message(sprintf("🌱 Converted LAI to fInt using k = %.2f", k))
