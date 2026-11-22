@@ -479,24 +479,6 @@ franchestyn <- function(
     file.remove(list_files_out)
   }
 
-  list_files_out <- list.files(
-    path = output_dir,
-    pattern = "\\.csv$",
-    full.names = TRUE
-  )
-
-  if (length(list_files_out) == 0) {
-    stop(
-      "FraNchEstYN completed but did not produce any output CSV files.",
-      call. = FALSE
-    )
-  }
-
-  # Remove all matching files
-  if (length(list_files_out) > 0) {
-    file.remove(list_files_out)
-  }
-
   # Check weather_data
   if (!is.data.frame(weather_data)) {
     stop("❌ 'weather_data' must be a data frame.")
@@ -1195,6 +1177,14 @@ franchestyn <- function(
     pattern = "\\.csv$",
     full.names = TRUE
   )
+
+  if (length(list_files_out) == 0) {
+    stop(
+      "FraNchEstYN completed but did not produce any output CSV files in: ",
+      output_dir,
+      call. = FALSE
+    )
+  }
 
   # read all files in a single dataframe
   outputs_df <- do.call(
