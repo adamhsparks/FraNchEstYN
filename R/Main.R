@@ -151,24 +151,28 @@
 #' )
 #' }
 #' @export
-franchestyn <- function(weather_data,
-                        cropModel_data = NULL,
-                        management_data = NULL,
-                        reference_data = NULL,
-                        cropParameters = NULL,
-                        diseaseParameters = NULL,
-                        fungicideParameters = NULL,
-                        calibration  = 'disease',
-                        start_end = c(2000,2025),
-                        k = 0.6,
-                        iterations=100,# extinction coefficient for LAI→fInt
-                        apikey = NULL,                 # optional API key
-                        franchy_message = FALSE,
-                        personality = c("scientist", "extensionist", "farmer"))  # NEW...)# whether to request spooky LLM summary)
-{
+franchestyn <- function(
+  weather_data,
+  cropModel_data = NULL,
+  management_data = NULL,
+  reference_data = NULL,
+  cropParameters = NULL,
+  diseaseParameters = NULL,
+  fungicideParameters = NULL,
+  calibration = 'disease',
+  start_end = c(2000, 2025),
+  k = 0.6,
+  iterations = 100, # extinction coefficient for LAI→fInt
+  apikey = NULL, # optional API key
+  franchy_message = FALSE,
+  personality = c("scientist", "extensionist", "farmer")
+) {
+  # NEW...)# whether to request spooky LLM summary)
   # Always coerce to character first
-  personality <- match.arg(as.character(personality),
-                           choices = c("scientist", "extensionist", "farmer"))
+  personality <- match.arg(
+    as.character(personality),
+    choices = c("scientist", "extensionist", "farmer")
+  )
 
   # --- detect timestep automatically ---
   normalize <- function(x) {
@@ -181,8 +185,10 @@ franchestyn <- function(weather_data,
 
   if (any(cn_norm %in% hourly_aliases)) {
     timestep <- "hourly"
-    message(sprintf("🔮 Hourly weather data detected (column(s): %s).",
-                    paste(names(weather_data)[cn_norm %in% hourly_aliases], collapse = ", ")))
+    message(sprintf(
+      "🔮 Hourly weather data detected (column(s): %s).",
+      paste(names(weather_data)[cn_norm %in% hourly_aliases], collapse = ", ")
+    ))
   } else {
     timestep <- "daily"
     message("🐍 No hourly column detected; assuming daily weather data.")
@@ -191,7 +197,7 @@ franchestyn <- function(weather_data,
   # check if reference_data is required
   # Parse calibration argument
   calibration <- tolower(calibration)
-  disease     <- 'thisDisease'
+  disease <- 'thisDisease'
 
   # Determine mode
   mode <- if (calibration == "none") "simulation" else "calibration"
@@ -201,16 +207,22 @@ franchestyn <- function(weather_data,
     if (tolower(calibration) == "none") {
       # crop model but user explicitly said no calibration
       calibrationModel <- "none"
-      message("🌱 cropModel_data detected, sowing years/DOYs inferred from cycles")
+      message(
+        "🌱 cropModel_data detected, sowing years/DOYs inferred from cycles"
+      )
     } else {
       calibrationModel <- "disease"
-      calibration <- "disease"  # force disease mode
-      message("🌱 cropModel_data detected, sowing years/DOYs inferred from cycles")
+      calibration <- "disease" # force disease mode
+      message(
+        "🌱 cropModel_data detected, sowing years/DOYs inferred from cycles"
+      )
     }
   } else {
-    if (tolower(calibration) %in% c("crop","all")) {
+    if (tolower(calibration) %in% c("crop", "all")) {
       calibrationModel <- ifelse(tolower(calibration) == "crop", "crop", "All")
-    } else if (grepl("^disease(:.*)?$", trimws(calibration), ignore.case = TRUE)) {
+    } else if (
+      grepl("^disease(:.*)?$", trimws(calibration), ignore.case = TRUE)
+    ) {
       calibrationModel <- "disease"
     } else {
       calibrationModel <- "none"
@@ -222,7 +234,6 @@ franchestyn <- function(weather_data,
     # your calibration code block here
   }
 
-
   # --- Check requirements for calibration ---
   if (calibration != "none") {
     if (is.null(reference_data)) {
@@ -232,25 +243,71 @@ franchestyn <- function(weather_data,
     if (is.null(reference_data)) {
       # create fake reference data for C#
       reference_data <- data.frame(
-        crop    = "thisCrop",
+        crop = "thisCrop",
         Disease = 0,
-        doy     = 300,
-        year    = start_end[1],
+        doy = 300,
+        year = start_end[1],
         stringsAsFactors = FALSE
       )
     }
   }
 
-  #TODO PATHS!!!
-  pkg_path <- system.file("", package = "FraNchEstYN")
-  exe_path <- system.file("bin", "FraNchEstYN.exe", package = "FraNchEstYN")
-  # pkg_path <- file.path(getwd(), "inst")
-  # exe_path <- file.path(pkg_path, "bin", "FraNchEstYN.exe")
+  # Locate the installed FraNchEstYN backend
+  bin_dir <- system.file("bin", package = "FraNchEstYN")
 
-  if (!file.exists(exe_path)) stop("❌ Executable not found.")
+  if (!nzchar(bin_dir) || !dir.exists(bin_dir)) {
+    stop(
+      "FraNchEstYN backend directory not found in the installed package.",
+      call. = FALSE
+    )
+  }
+
+  if (.Platform$OS.type == "windows") {
+    backend <- file.path(bin_dir, "FraNchEstYN.exe")
+
+    if (!file.exists(backend)) {
+      stop("FraNchEstYN.exe not found in: ", bin_dir, call. = FALSE)
+    }
+
+    backend_args <- NULL
+  } else {
+    backend <- Sys.which("dotnet")
+
+    if (!nzchar(backend)) {
+      stop(
+        "The .NET runtime was not found. Install the .NET 8 runtime ",
+        "and ensure 'dotnet' is available on PATH.",
+        call. = FALSE
+      )
+    }
+
+    # check that the correct runtime is installed before trying to launch
+    runtime_output <- system2(
+      backend,
+      "--list-runtimes",
+      stdout = TRUE,
+      stderr = TRUE
+    )
+
+    if (!any(grepl("^Microsoft\\.NETCore\\.App 8\\.", runtime_output))) {
+      stop(
+        "FraNchEstYN requires the .NET 8 runtime. ",
+        "Install .NET 8 and try again.",
+        call. = FALSE
+      )
+    }
+
+    dll <- file.path(bin_dir, "FraNchEstYN.dll")
+
+    if (!file.exists(dll)) {
+      stop("FraNchEstYN.dll not found in: ", bin_dir, call. = FALSE)
+    }
+
+    backend_args <- dll
+  }
 
   ## ------------------- CROP MODEL HANDLING ------------------- ##
-  crop_model_dir <- file.path(dirname(exe_path), "files", "cropModel")
+  crop_model_dir <- file.path(dirname(bin_dir), "files", "cropModel")
   dir.create(crop_model_dir, recursive = TRUE, showWarnings = FALSE)
 
   cropModel_flag <- "no"
@@ -265,17 +322,41 @@ franchestyn <- function(weather_data,
     nms <- normalize(names(cropModel_data))
 
     # --- required column mapping ---
-    year_col <- names(cropModel_data)[nms %in% c("year","yr")][1]
-    doy_col  <- names(cropModel_data)[nms %in% c("doy","dayofyear","dy","d")][1]
-    agb_col  <- names(cropModel_data)[nms %in% c("agb","abovegroundbiomass","biomass","wtop")][1]
-    yld_col  <- names(cropModel_data)[nms %in% c("yield","yieldattainable","yieldpotential","wgrn","grainyieldpotential")][1]
-    fint_col <- names(cropModel_data)[nms %in% c("fint","f_int","lightinterception","lightint","lightinterception")][1]
-    lai_col  <- names(cropModel_data)[nms %in% c("lai","leafareaindex")][1]
-    gdd_col  <- names(cropModel_data)[nms %in% c("gdd","thermaltime","thermal_time")][1]
+    year_col <- names(cropModel_data)[nms %in% c("year", "yr")][1]
+    doy_col <- names(cropModel_data)[nms %in% c("doy", "dayofyear", "dy", "d")][
+      1
+    ]
+    agb_col <- names(cropModel_data)[
+      nms %in% c("agb", "abovegroundbiomass", "biomass", "wtop")
+    ][1]
+    yld_col <- names(cropModel_data)[
+      nms %in%
+        c(
+          "yield",
+          "yieldattainable",
+          "yieldpotential",
+          "wgrn",
+          "grainyieldpotential"
+        )
+    ][1]
+    fint_col <- names(cropModel_data)[
+      nms %in%
+        c("fint", "f_int", "lightinterception", "lightint", "lightinterception")
+    ][1]
+    lai_col <- names(cropModel_data)[nms %in% c("lai", "leafareaindex")][1]
+    gdd_col <- names(cropModel_data)[
+      nms %in% c("gdd", "thermaltime", "thermal_time")
+    ][1]
 
-    if (is.null(year_col) || is.null(doy_col)) stop("❌ cropModel_data must contain 'year' and 'doy' columns")
-    if (is.null(agb_col) || is.null(yld_col)) stop("❌ cropModel_data must contain both 'AGB' and 'Yield' columns")
-    if (is.null(fint_col) && is.null(lai_col))stop("❌ cropModel_data must contain either 'fInt' or 'LAI' column")
+    if (is.null(year_col) || is.null(doy_col)) {
+      stop("❌ cropModel_data must contain 'year' and 'doy' columns")
+    }
+    if (is.null(agb_col) || is.null(yld_col)) {
+      stop("❌ cropModel_data must contain both 'AGB' and 'Yield' columns")
+    }
+    if (is.null(fint_col) && is.null(lai_col)) {
+      stop("❌ cropModel_data must contain either 'fInt' or 'LAI' column")
+    }
 
     # --- LAI → fInt conversion (Beer’s law) ---
     if (is.null(fint_col) && !is.null(lai_col)) {
@@ -292,20 +373,22 @@ franchestyn <- function(weather_data,
 
     # --- standardize columns ---
     cm <- data.frame(
-      Date  = cropModel_data$Date,
-      Year  = as.integer(cropModel_data[[year_col]]),
-      DOY   = as.integer(cropModel_data[[doy_col]]),
-      fInt  = as.numeric(cropModel_data[[fint_col]]),
-      AGB   = as.numeric(cropModel_data[[agb_col]]),
+      Date = cropModel_data$Date,
+      Year = as.integer(cropModel_data[[year_col]]),
+      DOY = as.integer(cropModel_data[[doy_col]]),
+      fInt = as.numeric(cropModel_data[[fint_col]]),
+      AGB = as.numeric(cropModel_data[[agb_col]]),
       Yield = as.numeric(cropModel_data[[yld_col]]),
       stringsAsFactors = FALSE
     )
 
     # optional GDD / ThermalTime
     has_gdd <- FALSE
-    if (!is.na(gdd_col)) {cm$GDD <- as.numeric(cropModel_data[[gdd_col]])
+    if (!is.na(gdd_col)) {
+      cm$GDD <- as.numeric(cropModel_data[[gdd_col]])
       has_gdd <- TRUE
-      message("📈 Included GDD/ThermalTime column.")}
+      message("📈 Included GDD/ThermalTime column.")
+    }
 
     # --- detect cycles (sowing jumps or harvest resets) ---
     dates <- sort(unique(cm$Date))
@@ -313,32 +396,39 @@ franchestyn <- function(weather_data,
     cycle_start <- min(dates)
 
     for (i in seq(2, length(dates))) {
-      prev <- dates[i-1]; curr <- dates[i]
+      prev <- dates[i - 1]
+      curr <- dates[i]
 
       # detect DOY jump not due to year wrap
-      doy_backwards <- as.integer(format(curr, "%j")) < as.integer(format(prev, "%j"))
+      doy_backwards <- as.integer(format(curr, "%j")) <
+        as.integer(format(prev, "%j"))
       year_wrap <- format(prev, "%m") == "12" && format(curr, "%m") == "01"
       sowing_jump <- doy_backwards && !year_wrap
 
       # detect harvest reset (yield drops >100 → <=100)
       yPrev <- cm$Yield[cm$Date == prev][1]
       yCurr <- cm$Yield[cm$Date == curr][1]
-      harvest_reset <- !is.na(yPrev) && !is.na(yCurr) && (yCurr <= 100 && yPrev > 100)
+      harvest_reset <- !is.na(yPrev) &&
+        !is.na(yCurr) &&
+        (yCurr <= 100 && yPrev > 100)
 
       if (sowing_jump || harvest_reset) {
-        cycles[[length(cycles)+1]] <- c(cycle_start, prev)
+        cycles[[length(cycles) + 1]] <- c(cycle_start, prev)
         cycle_start <- curr
       }
     }
-    cycles[[length(cycles)+1]] <- c(cycle_start, max(dates))  # close final cycle
+    cycles[[length(cycles) + 1]] <- c(cycle_start, max(dates)) # close final cycle
 
     # --- compute cycle percentage ---
     cm$cyclePercentage <- NA_real_
 
     for (cyc in cycles) {
-      start <- as.Date(cyc[1]); end <- as.Date(cyc[2])
+      start <- as.Date(cyc[1])
+      end <- as.Date(cyc[2])
       idx <- cm$Date >= start & cm$Date <= end
-      if (!any(idx)) next
+      if (!any(idx)) {
+        next
+      }
 
       if (has_gdd) {
         gdd_vals <- cm$GDD[idx]
@@ -349,32 +439,56 @@ franchestyn <- function(weather_data,
       } else {
         total_days <- as.numeric(end - start)
         if (total_days > 0) {
-          cm$cyclePercentage[idx] <- as.numeric(difftime(cm$Date[idx], start, units = "days")) /
-            total_days * 100
+          cm$cyclePercentage[idx] <- as.numeric(difftime(
+            cm$Date[idx],
+            start,
+            units = "days"
+          )) /
+            total_days *
+            100
         }
       }
     }
 
     # --- write file ---
     out_crop_file <- file.path(crop_model_dir, "cropModelData.csv")
-    write.table(cm, out_crop_file,
-                sep = ",", row.names = FALSE, col.names = TRUE, quote = FALSE)
+    write.table(
+      cm,
+      out_crop_file,
+      sep = ",",
+      row.names = FALSE,
+      col.names = TRUE,
+      quote = FALSE
+    )
 
     cropModel_flag <- "yes"
   }
 
+  output_dir <- file.path(bin_dir, "outputs")
+  dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
   list_files_out <- list.files(
-    path = file.path(dirname(exe_path), "outputs"),
+    path = output_dir,
     pattern = "\\.csv$",
     full.names = TRUE
   )
 
+  if (length(list_files_out) == 0) {
+    stop(
+      "FraNchEstYN completed but did not produce any output CSV files.",
+      call. = FALSE
+    )
+  }
+
   # Remove all matching files
-  if (length(list_files_out) > 0) {file.remove(list_files_out)}
+  if (length(list_files_out) > 0) {
+    file.remove(list_files_out)
+  }
 
   # Check weather_data
-  if (!is.data.frame(weather_data)) stop("❌ 'weather_data' must be a data frame.")
+  if (!is.data.frame(weather_data)) {
+    stop("❌ 'weather_data' must be a data frame.")
+  }
   # Case-insensitive check for 'Site'
   site_col <- names(weather_data)[tolower(names(weather_data)) == "site"]
   if (length(site_col) == 0) {
@@ -386,14 +500,17 @@ franchestyn <- function(weather_data,
   # will accept "Indiana" and return the canonical name from management_data
   sites <- unique(weather_data$Site)
 
-  if(length(sites)>1){
+  if (length(sites) > 1) {
     stop("💀 weather_data' must contain a single site!")
   }
 
   # ---- Fallback for fungicides ----
   if (is.null(fungicideParameters)) {
     if (exists("fungicideParameters", envir = asNamespace("FraNchEstYN"))) {
-      pkg_fungicides <- get("fungicideParameters", envir = asNamespace("FraNchEstYN"))
+      pkg_fungicides <- get(
+        "fungicideParameters",
+        envir = asNamespace("FraNchEstYN")
+      )
       fungicideParameters <- pkg_fungicides$protectant
     }
   }
@@ -401,24 +518,29 @@ franchestyn <- function(weather_data,
   # ---- Check Parameters ----
   if (is.null(cropModel_data)) {
     # Standard case → need crop & disease parameters
-    if (!is.list(cropParameters)) stop("🕸 'cropParameters' must be a nested list.")
-    if (!is.list(diseaseParameters)) stop("🕸 'diseaseParameters' must be a nested list.")
+    if (!is.list(cropParameters)) {
+      stop("🕸 'cropParameters' must be a nested list.")
+    }
+    if (!is.list(diseaseParameters)) {
+      stop("🕸 'diseaseParameters' must be a nested list.")
+    }
 
     validate_parameter_ranges(
-      cropParameters      = cropParameters,
-      diseaseParameters   = diseaseParameters,
+      cropParameters = cropParameters,
+      diseaseParameters = diseaseParameters,
       fungicideParameters = fungicideParameters
     )
-
   } else {
     # Crop model provided → cropParameters ignored
     if (!is.null(cropParameters)) {
       cropParameters <- NULL
     }
-    if (!is.list(diseaseParameters)) stop("🕸 'diseaseParameters' must be a nested list.")
+    if (!is.list(diseaseParameters)) {
+      stop("🕸 'diseaseParameters' must be a nested list.")
+    }
 
     validate_parameter_ranges(
-      diseaseParameters   = diseaseParameters,
+      diseaseParameters = diseaseParameters,
       fungicideParameters = fungicideParameters
     )
   }
@@ -429,7 +551,7 @@ franchestyn <- function(weather_data,
     stop("👹 'start_end' must be a numeric vector of length 2: c(start, end)")
   }
   start_year <- start_end[1]
-  end_year   <- start_end[2]
+  end_year <- start_end[2]
 
   if (start_year > end_year) {
     stop("👹 'start_end[1]' must be <= 'start_end[2]'")
@@ -441,14 +563,17 @@ franchestyn <- function(weather_data,
   }
 
   # CONFIGURATION----
-  # Path to the EXE
-  if (!file.exists(exe_path)) stop("🧛 Executable not found.")
 
   # Subfolders
-  input_weather_dir <- file.path(dirname(exe_path), "files", "weather", tolower(timestep))
-  input_parameters_dir   <- file.path(dirname(exe_path), "files", "parameters")
-  input_reference_dir     <- file.path(dirname(exe_path), "files", "reference")
-  input_management_dir     <- file.path(dirname(exe_path), "files", "management")
+  input_weather_dir <- file.path(
+    dirname(bin_dir),
+    "files",
+    "weather",
+    tolower(timestep)
+  )
+  input_parameters_dir <- file.path(dirname(bin_dir), "files", "parameters")
+  input_reference_dir <- file.path(dirname(bin_dir), "files", "reference")
+  input_management_dir <- file.path(dirname(bin_dir), "files", "management")
 
   dir.create(input_weather_dir, recursive = TRUE, showWarnings = FALSE)
   dir.create(input_parameters_dir, recursive = TRUE, showWarnings = FALSE)
@@ -456,24 +581,33 @@ franchestyn <- function(weather_data,
   dir.create(input_management_dir, recursive = TRUE, showWarnings = FALSE)
 
   # Path to write the reference file
-  prepare_reference_data <- function(reference_data,
-                                     calibration,
-                                     disease_name = "thisDisease",
-                                     verbose = TRUE) {
+  prepare_reference_data <- function(
+    reference_data,
+    calibration,
+    disease_name = "thisDisease",
+    verbose = TRUE
+  ) {
     # Normalize calibration
     calib <- tolower(trimws(as.character(calibration)))
 
     # If calibration = "none" and reference_data is NULL → just return NULL
     if (calib == "none" && is.null(reference_data)) {
       if (isTRUE(verbose)) {
-        message("ℹ️ Calibration = 'none' and no reference_data supplied → skipping checks.")
+        message(
+          "ℹ️ Calibration = 'none' and no reference_data supplied → skipping checks."
+        )
       }
       return(NULL)
     }
 
     if (is.null(reference_data)) {
-      stop(sprintf("reference_data must be provided when calibration = '%s'.", calib),
-           call. = FALSE)
+      stop(
+        sprintf(
+          "reference_data must be provided when calibration = '%s'.",
+          calib
+        ),
+        call. = FALSE
+      )
     }
 
     # Trim spaces from column names
@@ -481,8 +615,8 @@ franchestyn <- function(weather_data,
 
     # Accepted aliases (case-insensitive)
     disease_aliases <- c("diseaseseverity", "dissev", "disease")
-    year_aliases    <- c("year")
-    doy_aliases     <- c("doy")
+    year_aliases <- c("year")
+    doy_aliases <- c("doy")
 
     nms <- names(reference_data)
     low <- tolower(nms)
@@ -493,9 +627,11 @@ franchestyn <- function(weather_data,
     year_hit <- year_hit[year_hit > 0]
     if (length(year_hit) == 0) {
       stop(
-        sprintf("reference_data must contain a 'year' column (accepted names: %s).\nColumns present: %s",
-                paste(year_aliases, collapse = ", "),
-                paste(nms, collapse = ", ")),
+        sprintf(
+          "reference_data must contain a 'year' column (accepted names: %s).\nColumns present: %s",
+          paste(year_aliases, collapse = ", "),
+          paste(nms, collapse = ", ")
+        ),
         call. = FALSE
       )
     }
@@ -505,9 +641,11 @@ franchestyn <- function(weather_data,
     doy_hit <- doy_hit[doy_hit > 0]
     if (length(doy_hit) == 0) {
       stop(
-        sprintf("reference_data must contain a 'doy' column (accepted names: %s).\nColumns present: %s",
-                paste(doy_aliases, collapse = ", "),
-                paste(nms, collapse = ", ")),
+        sprintf(
+          "reference_data must contain a 'doy' column (accepted names: %s).\nColumns present: %s",
+          paste(doy_aliases, collapse = ", "),
+          paste(nms, collapse = ", ")
+        ),
         call. = FALSE
       )
     }
@@ -547,13 +685,15 @@ franchestyn <- function(weather_data,
 
   # required columns for C#
   if (!is.null(reference_data)) {
-    reference_data$site    <- sites
+    reference_data$site <- sites
     reference_data$variety <- "Generic"
 
     # Make the column named exactly "thisDisease"
-    reference_data <- prepare_reference_data(reference_data,
-                                             calibration = calibration,
-                                             disease_name = "thisDisease")
+    reference_data <- prepare_reference_data(
+      reference_data,
+      calibration = calibration,
+      disease_name = "thisDisease"
+    )
 
     write.table(
       reference_data,
@@ -565,11 +705,10 @@ franchestyn <- function(weather_data,
     )
   }
 
-
   ##-- MANAGEMENT DATA --##
   man_file <- file.path(input_management_dir, "sowing.csv")
 
-  management_user <- management_data  # copy raw
+  management_user <- management_data # copy raw
 
   if (is.null(cropModel_data)) {
     # ------------------ STANDARD CASE ------------------
@@ -603,24 +742,23 @@ franchestyn <- function(weather_data,
 
     # year cleanup
     management_user$year <- trimws(as.character(management_user$year))
-    is_all   <- tolower(management_user$year) == "all"
-    is_yyyy  <- grepl("^\\d{4}$", management_user$year)
-    yr_num   <- suppressWarnings(as.integer(management_user$year))
+    is_all <- tolower(management_user$year) == "all"
+    is_yyyy <- grepl("^\\d{4}$", management_user$year)
+    yr_num <- suppressWarnings(as.integer(management_user$year))
     yr_num[!is_yyyy] <- NA_integer_
     if (!any(is_all, na.rm = TRUE)) {
       management_user$year <- yr_num
     }
-
   } else {
     # --- derive sowings directly from cropModel cycles ---
     sowings <- lapply(cycles, function(cyc) {
       start <- as.Date(cyc[1])
       data.frame(
-        site      = sites,
-        crop      = "wheat",
-        variety   = "Generic",
+        site = sites,
+        crop = "wheat",
+        variety = "Generic",
         sowingdoy = as.integer(strftime(start, "%j")),
-        year      = as.integer(format(start, "%Y")),
+        year = as.integer(format(start, "%Y")),
         stringsAsFactors = FALSE
       )
     })
@@ -628,9 +766,15 @@ franchestyn <- function(weather_data,
 
     # 👇 merge user treatments if provided
     if (!is.null(management_data) && "treatment" %in% names(management_data)) {
-      message("💊 Using fungicide treatments from user-supplied management_data.")
+      message(
+        "💊 Using fungicide treatments from user-supplied management_data."
+      )
 
-      names(management_data) <- tolower(gsub("\\s+", "_", names(management_data)))
+      names(management_data) <- tolower(gsub(
+        "\\s+",
+        "_",
+        names(management_data)
+      ))
 
       # Keep only year + treatment
       tr_in <- management_data[, c("year", "treatment"), drop = FALSE]
@@ -655,7 +799,14 @@ franchestyn <- function(weather_data,
     parse_doy <- function(tok, yr) {
       tok <- gsub("[-./]", " ", tok)
       tok <- gsub("\\s+", " ", trimws(tok))
-      for (fmt in c("%d %b %Y", "%b %d %Y", "%d %B %Y", "%B %d %Y", "%d %b", "%b %d")) {
+      for (fmt in c(
+        "%d %b %Y",
+        "%b %d %Y",
+        "%d %B %Y",
+        "%B %d %Y",
+        "%d %b",
+        "%b %d"
+      )) {
         d <- as.Date(paste(tok, yr), format = fmt)
         if (!is.na(d)) return(as.integer(strftime(d, "%j")))
       }
@@ -666,13 +817,23 @@ franchestyn <- function(weather_data,
 
     for (i in seq_len(nrow(management_user))) {
       cell <- management_user$treatment[[i]]
-      if (is.null(cell) || !nzchar(cell)) next
+      if (is.null(cell) || !nzchar(cell)) {
+        next
+      }
       toks <- trimws(unlist(strsplit(as.character(cell), "[,;]+")))
       toks <- toks[nzchar(toks)]
-      if (!length(toks)) next
+      if (!length(toks)) {
+        next
+      }
 
-      ref_year <- if (is_all[i]) fallback_year else suppressWarnings(as.integer(management_user$year[i]))
-      if (is.na(ref_year)) ref_year <- fallback_year
+      ref_year <- if (is_all[i]) {
+        fallback_year
+      } else {
+        suppressWarnings(as.integer(management_user$year[i]))
+      }
+      if (is.na(ref_year)) {
+        ref_year <- fallback_year
+      }
 
       doys <- vapply(toks, parse_doy, integer(1L), yr = ref_year)
       doys <- doys[!is.na(doys)]
@@ -687,9 +848,17 @@ franchestyn <- function(weather_data,
     }
 
     # keep track of treatment columns if created
-    treatment_cols <- grep("^treatment_\\d+$", names(management_user), value = TRUE)
+    treatment_cols <- grep(
+      "^treatment_\\d+$",
+      names(management_user),
+      value = TRUE
+    )
     if (length(treatment_cols)) {
-      tr_order <- order(as.integer(sub("^treatment_(\\d+)$", "\\1", treatment_cols)))
+      tr_order <- order(as.integer(sub(
+        "^treatment_(\\d+)$",
+        "\\1",
+        treatment_cols
+      )))
       treatment_cols <- treatment_cols[tr_order]
     }
 
@@ -705,21 +874,27 @@ franchestyn <- function(weather_data,
   write.table(
     management_user,
     file = man_file,
-    sep = ",", row.names = FALSE, col.names = TRUE, quote = FALSE, na = ""
+    sep = ",",
+    row.names = FALSE,
+    col.names = TRUE,
+    quote = FALSE,
+    na = ""
   )
 
   management_data <- management_user
 
   # WRITE WEATHER FILE ----
   # Validate required columns
-  if (!"Site" %in% names(weather_data)) stop("Missing 'Site' column in weather_data")
+  if (!"Site" %in% names(weather_data)) {
+    stop("Missing 'Site' column in weather_data")
+  }
 
-  site_names <- sites  # This will be used in the JSON config
+  site_names <- sites # This will be used in the JSON config
 
   # WRITE PARAMETERS FILE----
   # Detect a leaf parameter node
   .is_param_leaf <- function(x) {
-    is.list(x) && all(c("min","max","value","calibration") %in% names(x))
+    is.list(x) && all(c("min", "max", "value", "calibration") %in% names(x))
   }
 
   params_to_df <- function(x, model = NA_character_) {
@@ -729,13 +904,13 @@ franchestyn <- function(weather_data,
       if (.is_param_leaf(node)) {
         param_name <- if (length(path)) tail(path, 1) else NA_character_
         rows[[length(rows) + 1]] <<- data.frame(
-          Model       = model,
-          Parameter   = param_name,
+          Model = model,
+          Parameter = param_name,
           Description = node$description,
           unit = node$unit,
-          min         = node$min,
-          max         = node$max,
-          value       = node$value,
+          min = node$min,
+          max = node$max,
+          value = node$value,
           calibration = ifelse(isTRUE(node$calibration), "x", ""),
           stringsAsFactors = FALSE
         )
@@ -743,7 +918,9 @@ franchestyn <- function(weather_data,
       }
       if (is.list(node)) {
         nms <- names(node)
-        if (is.null(nms)) nms <- rep(NA_character_, length(node))
+        if (is.null(nms)) {
+          nms <- rep(NA_character_, length(node))
+        }
         for (i in seq_along(node)) {
           walk(node[[i]], c(path, nms[[i]]))
         }
@@ -754,8 +931,14 @@ franchestyn <- function(weather_data,
 
     if (!length(rows)) {
       return(data.frame(
-        Model=character(), Parameter=character(), Description = character(), unit = character(),
-        min=numeric(), max=numeric(), value=numeric(), calibration=character(),
+        Model = character(),
+        Parameter = character(),
+        Description = character(),
+        unit = character(),
+        min = numeric(),
+        max = numeric(),
+        value = numeric(),
+        calibration = character(),
         stringsAsFactors = FALSE
       ))
     }
@@ -768,14 +951,17 @@ franchestyn <- function(weather_data,
   params_fungicide_df <- params_to_df(fungicideParameters, model = 'fungicide')
 
   param_file <- file.path(input_parameters_dir, "franchestynParameters.csv")
-  readr::write_csv(rbind(params_crop_df,params_disease_df,params_fungicide_df),param_file)
+  readr::write_csv(
+    rbind(params_crop_df, params_disease_df, params_fungicide_df),
+    param_file
+  )
 
   # --- WEATHER FILE WRITING ---
   # Aliases for date/time columns
-  year_aliases  <- c("year", "yr", "yyyy")
+  year_aliases <- c("year", "yr", "yyyy")
   month_aliases <- c("month", "mo", "mn", "mm")
-  day_aliases   <- c("day", "dy", "dd")
-  hour_aliases  <- c("hour", "hr", "hh")
+  day_aliases <- c("day", "dy", "dd")
+  hour_aliases <- c("hour", "hr", "hh")
 
   rad_aliases <- c("rad", "radiation", "solar", "solarrad", "rs", "gsr", 'srad')
   lat_aliases <- c("lat", "latitude", "site_lat", "phi")
@@ -786,7 +972,9 @@ franchestyn <- function(weather_data,
   has_rad <- any(nms %in% rad_aliases)
   has_lat <- any(nms %in% lat_aliases)
   if (!has_rad && !has_lat) {
-    stop("☠: 'weather_data' must contain either a radiation column (rad/solar/rs/...) or a latitude column (lat/latitude/...).")
+    stop(
+      "☠: 'weather_data' must contain either a radiation column (rad/solar/rs/...) or a latitude column (lat/latitude/...)."
+    )
   }
 
   # --- find matching column names via aliases ---
@@ -795,14 +983,18 @@ franchestyn <- function(weather_data,
   dcol <- names(weather_data)[match(TRUE, nms %in% day_aliases)]
 
   if (any(is.na(c(ycol, mcol, dcol)))) {
-    stop("☠: 'weather_data' must contain columns for year, month, and day (aliases allowed).")
+    stop(
+      "☠: 'weather_data' must contain columns for year, month, and day (aliases allowed)."
+    )
   }
 
   # --- if timestep = hourly, check for hour col ---
   if (timestep == "hourly") {
     hcol <- names(weather_data)[match(TRUE, nms %in% hour_aliases)]
     if (is.na(hcol)) {
-      stop("☠: 'weather_data' must contain an 'hour' column for hourly timestep.")
+      stop(
+        "☠: 'weather_data' must contain an 'hour' column for hourly timestep."
+      )
     }
   }
 
@@ -812,23 +1004,36 @@ franchestyn <- function(weather_data,
   d <- as.integer(weather_data[[dcol]])
   if (timestep == "hourly") {
     h <- as.integer(weather_data[[hcol]])
-    weather_data$DateTime <- as.POSIXct(sprintf("%04d-%02d-%02d %02d:00", y, m, d, h), tz = "UTC")
+    weather_data$DateTime <- as.POSIXct(
+      sprintf("%04d-%02d-%02d %02d:00", y, m, d, h),
+      tz = "UTC"
+    )
   } else {
     weather_data$Date <- as.Date(sprintf("%04d-%02d-%02d", y, m, d))
   }
 
   # --- write to CSV ---
   out_file <- file.path(input_weather_dir, paste0(sites, ".csv"))
-  write.table(weather_data, out_file, sep = ",",
-              row.names = FALSE, col.names = TRUE, quote = FALSE)
+  write.table(
+    weather_data,
+    out_file,
+    sep = ",",
+    row.names = FALSE,
+    col.names = TRUE,
+    quote = FALSE
+  )
 
   # BUILD JSON ----
+  #
+  # NOTE: Forward slashes are accepted by .NET on Windows as well as macOS and
+  # Linux, so you can use them everywhere. Therefore `winslash` is now `/` not
+  # `\`
   config <- list(
     settings = list(
       startYear = start_year,
       endYear = end_year,
       sites = as.list(site_names),
-      isCalibration = ifelse(calibration!='none','true','false'),
+      isCalibration = ifelse(calibration != 'none', 'true', 'false'),
       calibrationVariable = calibration,
       varieties = as.list(c("Generic")),
       cropModel = ifelse(is.null(cropModel_data), "no", "yes"),
@@ -838,26 +1043,54 @@ franchestyn <- function(weather_data,
       weatherTimeStep = tolower(timestep)
     ),
     paths = list(
-      weatherDir        = normalizePath(dirname(input_weather_dir), winslash = "\\", mustWork = FALSE),
-      referenceFilePaths= normalizePath(input_reference_dir, winslash = "\\", mustWork = FALSE),
-      paramFile         = normalizePath(param_file, winslash = "\\", mustWork = FALSE),
-      sowingFile        = normalizePath(man_file, winslash = "\\", mustWork = FALSE),
-      cropModelFile     = if (!is.null(cropModel_data))
-        normalizePath(crop_model_dir, winslash = "\\", mustWork = FALSE)
-      else ""
+      weatherDir = normalizePath(
+        dirname(input_weather_dir),
+        winslash = "/",
+        mustWork = FALSE
+      ),
+      referenceFilePaths = normalizePath(
+        input_reference_dir,
+        winslash = "/",
+        mustWork = FALSE
+      ),
+      paramFile = normalizePath(param_file, winslash = "/", mustWork = FALSE),
+      sowingFile = normalizePath(man_file, winslash = "/", mustWork = FALSE),
+      cropModelFile = if (!is.null(cropModel_data)) {
+        normalizePath(crop_model_dir, winslash = "/", mustWork = FALSE)
+      } else {
+        ""
+      }
     )
   )
 
-  config_path <- file.path(dirname(exe_path), "FraNchEstYNConfig.json")
+  config_path <- file.path(dirname(bin_dir), "FraNchEstYNConfig.json")
   jsonlite::write_json(config, config_path, auto_unbox = TRUE, pretty = TRUE)
 
-  cmd <- paste(shQuote(exe_path), shQuote(config_path))
-
   # random spooky icons for variety
-  spooky_icons <- c("🧟", "🦇", "🕷", "🎃", "💀", "👻", "☠",  "🪓", "🩸",     # blood drop    # axe     # trap
-                    "🩻" , "🕯","👹" , "🕸", "🧛", "🔪", "📜", "🕸", "💣", "🌖", "🐀")
+  spooky_icons <- c(
+    "🧟",
+    "🦇",
+    "🕷",
+    "🎃",
+    "💀",
+    "👻",
+    "☠",
+    "🪓",
+    "🩸", # blood drop    # axe     # trap
+    "🩻",
+    "🕯",
+    "👹",
+    "🕸",
+    "🧛",
+    "🔪",
+    "📜",
+    "🕸",
+    "💣",
+    "🌖",
+    "🐀"
+  )
   start_icon <- sample(spooky_icons, 1)
-  end_icon   <- sample(spooky_icons, 1)
+  end_icon <- sample(spooky_icons, 1)
 
   # message depends on mode
   run_label <- if (mode == "calibration") {
@@ -876,21 +1109,35 @@ franchestyn <- function(weather_data,
 
   # --- run EXE with live streaming -------------------------------------------
   if (!requireNamespace("processx", quietly = TRUE)) {
-    stop("Please install the 'processx' package to stream progress: install.packages('processx')")
+    stop(
+      "Please install the 'processx' package to stream progress: install.packages('processx')"
+    )
   }
 
   # Extract quoted pieces: exe and args
-  exe <- exe_path
-  args <- c(config_path)
+  # Build platform-specific command and arguments
+  if (.Platform$OS.type == "windows") {
+    exe <- backend
+    args <- config_path
+  } else {
+    exe <- backend
+    args <- c(backend_args, config_path)
+  }
 
-  p <- processx::process$new(exe, args, stdout = "|", stderr = "|")
+  p <- processx::process$new(
+    command = exe,
+    args = args,
+    wd = bin_dir,
+    stdout = "|",
+    stderr = "|"
+  )
 
   repeat {
-    p$poll_io(100L)  # <-- integer ms, not 0.1
+    p$poll_io(100L) # <-- integer ms, not 0.1
 
     out <- p$read_output()
     if (nzchar(out)) {
-      cat(out)        # preserves \r so the line updates in place
+      cat(out) # preserves \r so the line updates in place
       flush.console()
     }
 
@@ -902,10 +1149,27 @@ franchestyn <- function(weather_data,
 
     if (!p$is_alive()) {
       # drain any remaining bytes
-      out <- p$read_output(); if (nzchar(out)) cat(out)
-      err <- p$read_error();  if (nzchar(err)) cat(err, file = stderr())
+      out <- p$read_output()
+      if (nzchar(out)) {
+        cat(out)
+      }
+      err <- p$read_error()
+      if (nzchar(err)) {
+        cat(err, file = stderr())
+      }
       break
     }
+  }
+
+  exit_status <- p$get_exit_status()
+
+  if (is.null(exit_status) || exit_status != 0L) {
+    stop(
+      "FraNchEstYN backend failed with exit status: ",
+      exit_status,
+      ". Check the output above for details.",
+      call. = FALSE
+    )
   }
 
   message(sprintf(
@@ -913,22 +1177,31 @@ franchestyn <- function(weather_data,
     end_icon
   ))
 
-
   #OUTPUTS----
-  list_files_out <- list.files(paste0(dirname(exe_path),"\\outputs"),
-                               pattern = "\\.csv$", full.names = TRUE)
+  list_files_out <- list.files(
+    output_dir,
+    pattern = "\\.csv$",
+    full.names = TRUE
+  )
 
   # read all files in a single dataframe
-  outputs_df <- do.call(rbind, lapply(list_files_out, function(f) {
-    df <- read.csv(f, stringsAsFactors = FALSE)
-    df$file <- basename(f)  # aggiunge colonna con nome file
-    df
-  }))
+  outputs_df <- do.call(
+    rbind,
+    lapply(list_files_out, function(f) {
+      df <- read.csv(f, stringsAsFactors = FALSE)
+      df$file <- basename(f) # aggiunge colonna con nome file
+      df
+    })
+  )
 
   #compute AUDPC
   audpc_calc <- function(severity, time) {
-    sum((head(severity, -1) + tail(severity, -1)) / 2 *
-          (tail(time, -1) - head(time, -1)), na.rm = TRUE)
+    sum(
+      (head(severity, -1) + tail(severity, -1)) /
+        2 *
+        (tail(time, -1) - head(time, -1)),
+      na.rm = TRUE
+    )
   }
 
   # Compute summaries
@@ -942,12 +1215,12 @@ franchestyn <- function(weather_data,
       TotalPrec = sum(Prec, na.rm = TRUE),
       TotalRad = sum(Rad, na.rm = TRUE),
       TotalLW = sum(LW),
-      AUDPC = audpc_calc(DiseaseSeverity*100, DaysAfterSowing),
+      AUDPC = audpc_calc(DiseaseSeverity * 100, DaysAfterSowing),
       DiseaseSeverity = max(DiseaseSeverity),
       YieldAttainable = max(YieldAttainable),
       YieldActual = max(YieldActual),
       YieldLossRaw = YieldAttainable - YieldActual,
-      YieldLossPerc = YieldLossRaw/YieldAttainable*100,
+      YieldLossPerc = YieldLossRaw / YieldAttainable * 100,
       AGBAttainable = max(AGBattainable),
       AGBActual = max(AGBactual),
       .groups = "drop"
@@ -964,63 +1237,93 @@ franchestyn <- function(weather_data,
   # Elimina i file
   file.remove(list_files_out)
 
-
   # ---- BUILD RESULT (plots + tables + outputs + updated parameters) -----------
-  if (!exists("result")) result <- list()
+  if (!exists("result")) {
+    result <- list()
+  }
   result$outputs$simulation <- outputs_df
   result$outputs$summary <- summary_df
   result$diagnostics$metrics <- metrics_df
 
   #parameter files
   if (calibration != "none") {
-
     ## ---- packages (fail early if missing) -----------------------------------
-    if (!requireNamespace("dplyr", quietly = TRUE))
+    if (!requireNamespace("dplyr", quietly = TRUE)) {
       stop("Package 'dplyr' is required. Please install it.")
-    if (!requireNamespace("ggplot2", quietly = TRUE))
+    }
+    if (!requireNamespace("ggplot2", quietly = TRUE)) {
       stop("Package 'ggplot2' is required. Please install it.")
+    }
 
     ## ---- load calibrated parameter files ------------------------------------
     list_files_out_param <- list.files(
-      file.path(dirname(exe_path), "calibratedParameters"),
-      pattern = "\\.csv$", full.names = TRUE
+      file.path(dirname(bin_dir), "calibratedParameters"),
+      pattern = "\\.csv$",
+      full.names = TRUE
     )
 
     param_df <- if (length(list_files_out_param)) {
-      do.call(rbind, lapply(list_files_out_param, function(f) {
-        df <- read.csv(f, stringsAsFactors = FALSE)
-        df$file <- basename(f)
-        df
-      }))
-    } else data.frame()
+      do.call(
+        rbind,
+        lapply(list_files_out_param, function(f) {
+          df <- read.csv(f, stringsAsFactors = FALSE)
+          df$file <- basename(f)
+          df
+        })
+      )
+    } else {
+      data.frame()
+    }
 
     # normalize names (lowercase) once
-    if (nrow(param_df)) names(param_df) <- tolower(names(param_df))
+    if (nrow(param_df)) {
+      names(param_df) <- tolower(names(param_df))
+    }
 
     ## ---- deep copy originals BEFORE updating --------------------------------
     deep_copy <- function(x) unserialize(serialize(x, NULL))
-    origCropParameters    <- deep_copy(cropParameters)
+    origCropParameters <- deep_copy(cropParameters)
     origDiseaseParameters <- deep_copy(diseaseParameters)
 
     ## ---- apply calibrated values (do NOT touch originals) -------------------
     update_param_list <- function(param_list, calib_df, clamp = TRUE) {
-      if (is.null(param_list) || !length(param_list) || !nrow(calib_df)) return(param_list)
+      if (is.null(param_list) || !length(param_list) || !nrow(calib_df)) {
+        return(param_list)
+      }
 
       # figure out columns present in CSVs
-      pcol <- if ("parameter" %in% names(calib_df)) "parameter" else if ("param" %in% names(calib_df)) "param" else return(param_list)
-      vcol <- if ("value" %in% names(calib_df)) "value"       else if ("val" %in% names(calib_df))   "val"   else return(param_list)
+      pcol <- if ("parameter" %in% names(calib_df)) {
+        "parameter"
+      } else if ("param" %in% names(calib_df)) {
+        "param"
+      } else {
+        return(param_list)
+      }
+      vcol <- if ("value" %in% names(calib_df)) {
+        "value"
+      } else if ("val" %in% names(calib_df)) {
+        "val"
+      } else {
+        return(param_list)
+      }
 
       for (i in seq_len(nrow(calib_df))) {
         pname <- trimws(as.character(calib_df[[pcol]][i]))
-        if (!nzchar(pname) || !(pname %in% names(param_list))) next
+        if (!nzchar(pname) || !(pname %in% names(param_list))) {
+          next
+        }
 
         v <- suppressWarnings(as.numeric(calib_df[[vcol]][i]))
-        if (is.na(v)) next
+        if (is.na(v)) {
+          next
+        }
 
         if (clamp) {
           mn <- suppressWarnings(as.numeric(param_list[[pname]]$min))
           mx <- suppressWarnings(as.numeric(param_list[[pname]]$max))
-          if (!is.na(mn)) v <- max(v, mn)
+          if (!is.na(mn)) {
+            v <- max(v, mn)
+          }
           if (!is.na(mx)) v <- min(v, mx)
         }
         # overwrite current value with calibrated (originals are in orig*)
@@ -1029,7 +1332,7 @@ franchestyn <- function(weather_data,
       param_list
     }
 
-    updatedCropParameters    <- update_param_list(cropParameters,    param_df)
+    updatedCropParameters <- update_param_list(cropParameters, param_df)
     updatedDiseaseParameters <- update_param_list(diseaseParameters, param_df)
 
     # If we're calibrating 'disease' only, ignore crop parameters
@@ -1044,7 +1347,7 @@ franchestyn <- function(weather_data,
 
     ## ---- flatten helpers ----------------------------------------------------
     .is_param_leaf <- function(x) {
-      is.list(x) && all(c("min","max","value","calibration") %in% names(x))
+      is.list(x) && all(c("min", "max", "value", "calibration") %in% names(x))
     }
 
     # Flatten a parameter tree into a table with a single numeric column called 'value'
@@ -1054,61 +1357,104 @@ franchestyn <- function(weather_data,
         if (.is_param_leaf(node)) {
           nm <- if (length(path)) tail(path, 1) else NA_character_
           rows[[length(rows) + 1]] <<- data.frame(
-            Model       = model,
-            Parameter   = nm,
-            unit        = if (!is.null(node$unit)) node$unit else NA_character_,
-            min         = suppressWarnings(as.numeric(node$min)),
-            max         = suppressWarnings(as.numeric(node$max)),
-            value       = suppressWarnings(as.numeric(node$value)),
+            Model = model,
+            Parameter = nm,
+            unit = if (!is.null(node$unit)) node$unit else NA_character_,
+            min = suppressWarnings(as.numeric(node$min)),
+            max = suppressWarnings(as.numeric(node$max)),
+            value = suppressWarnings(as.numeric(node$value)),
             calibration = isTRUE(node$calibration),
             stringsAsFactors = FALSE
           )
         } else if (is.list(node)) {
-          nms <- names(node); if (is.null(nms)) nms <- rep(NA_character_, length(node))
-          for (i in seq_along(node)) walk(node[[i]], c(path, nms[[i]]))
+          nms <- names(node)
+          if (is.null(nms)) {
+            nms <- rep(NA_character_, length(node))
+          }
+          for (i in seq_along(node)) {
+            walk(node[[i]], c(path, nms[[i]]))
+          }
         }
       }
       if (is.null(x)) {
-        return(data.frame(Model=character(), Parameter=character(), unit=character(),
-                          min=numeric(), max=numeric(), value=numeric(),
-                          calibration=logical(), stringsAsFactors = FALSE))
+        return(data.frame(
+          Model = character(),
+          Parameter = character(),
+          unit = character(),
+          min = numeric(),
+          max = numeric(),
+          value = numeric(),
+          calibration = logical(),
+          stringsAsFactors = FALSE
+        ))
       }
       walk(x)
       if (!length(rows)) {
-        return(data.frame(Model=character(), Parameter=character(), unit=character(),
-                          min=numeric(), max=numeric(), value=numeric(),
-                          calibration=logical(), stringsAsFactors = FALSE))
+        return(data.frame(
+          Model = character(),
+          Parameter = character(),
+          unit = character(),
+          min = numeric(),
+          max = numeric(),
+          value = numeric(),
+          calibration = logical(),
+          stringsAsFactors = FALSE
+        ))
       }
       do.call(rbind, rows)
     }
 
     ## ---- build defaults (original) & calibrated (updated) -------------------
-    defaults_crop    <- flatten_params(origCropParameters,         "crop")
-    defaults_disease <- flatten_params(origDiseaseParameters,      "disease")
-    calib_crop       <- flatten_params(updatedCropParameters,      "crop")
-    calib_disease    <- flatten_params(updatedDiseaseParameters,   "disease")
+    defaults_crop <- flatten_params(origCropParameters, "crop")
+    defaults_disease <- flatten_params(origDiseaseParameters, "disease")
+    calib_crop <- flatten_params(updatedCropParameters, "crop")
+    calib_disease <- flatten_params(updatedDiseaseParameters, "disease")
 
     # rename their 'value' columns to default / calibrated
-    if (nrow(defaults_crop))    names(defaults_crop)   [names(defaults_crop)   == "value"] <- "default"
-    if (nrow(defaults_disease)) names(defaults_disease)[names(defaults_disease)== "value"] <- "default"
-    if (nrow(calib_crop))       names(calib_crop)      [names(calib_crop)      == "value"] <- "calibrated"
-    if (nrow(calib_disease))    names(calib_disease)   [names(calib_disease)   == "value"] <- "calibrated"
+    if (nrow(defaults_crop)) {
+      names(defaults_crop)[names(defaults_crop) == "value"] <- "default"
+    }
+    if (nrow(defaults_disease)) {
+      names(defaults_disease)[names(defaults_disease) == "value"] <- "default"
+    }
+    if (nrow(calib_crop)) {
+      names(calib_crop)[names(calib_crop) == "value"] <- "calibrated"
+    }
+    if (nrow(calib_disease)) {
+      names(calib_disease)[names(calib_disease) == "value"] <- "calibrated"
+    }
 
     # join defaults + calibrated on common keys
     join_two <- function(a, b) {
-      dplyr::full_join(a, b, by = c("Model","Parameter","unit","min","max","calibration"))
+      dplyr::full_join(
+        a,
+        b,
+        by = c("Model", "Parameter", "unit", "min", "max", "calibration")
+      )
     }
 
     bounds_list <- list(
-      if (nrow(defaults_crop) || nrow(calib_crop))          join_two(defaults_crop,    calib_crop)    else NULL,
-      if (nrow(defaults_disease) || nrow(calib_disease))    join_two(defaults_disease, calib_disease) else NULL
+      if (nrow(defaults_crop) || nrow(calib_crop)) {
+        join_two(defaults_crop, calib_crop)
+      } else {
+        NULL
+      },
+      if (nrow(defaults_disease) || nrow(calib_disease)) {
+        join_two(defaults_disease, calib_disease)
+      } else {
+        NULL
+      }
     )
     bounds_df <- dplyr::bind_rows(Filter(Negate(is.null), bounds_list))
 
     ## ---- optionally merge CSV columns (if present) --------------------------
     # only do the join if param_df has the needed columns
-    if (nrow(param_df) && all(c("model","param") %in% names(param_df))) {
-      merged <- dplyr::left_join(bounds_df, param_df, by = c("Model"="model","Parameter"="param"))
+    if (nrow(param_df) && all(c("model", "param") %in% names(param_df))) {
+      merged <- dplyr::left_join(
+        bounds_df,
+        param_df,
+        by = c("Model" = "model", "Parameter" = "param")
+      )
     } else {
       merged <- bounds_df
     }
@@ -1119,60 +1465,85 @@ franchestyn <- function(weather_data,
     merged <- dplyr::ungroup(merged)
 
     # facet label = "Parameter (unit)"
-    merged$facet_label <- ifelse(!is.na(merged$unit) & nzchar(merged$unit),
-                                 paste0(merged$Parameter, " (", merged$unit, ")"),
-                                 merged$Parameter)
+    merged$facet_label <- ifelse(
+      !is.na(merged$unit) & nzchar(merged$unit),
+      paste0(merged$Parameter, " (", merged$unit, ")"),
+      merged$Parameter
+    )
 
     # split for downstream compatibility
-    crop_dat    <- subset(merged, tolower(Model) == "crop")
+    crop_dat <- subset(merged, tolower(Model) == "crop")
     disease_dat <- subset(merged, tolower(Model) == "disease")
 
     ## ---- plotting function (define BEFORE using it) -------------------------
     plot_params_facets <- function(df, title) {
-      if (!nrow(df)) return(NULL)
+      if (!nrow(df)) {
+        return(NULL)
+      }
 
       # build a flag column for plotting
       df$point_color <- ifelse(df$calibration, "Calibration", "Default")
 
       ggplot2::ggplot(df, ggplot2::aes(x = 1)) +
-        ggplot2::geom_hline(ggplot2::aes(yintercept = min,     color = "Min"),     linewidth = 1.2, na.rm = TRUE) +
-        ggplot2::geom_hline(ggplot2::aes(yintercept = max,     color = "Max"),     linewidth = 1.2, na.rm = TRUE) +
-        ggplot2::geom_hline(ggplot2::aes(yintercept = default, color = "Default"), linewidth = 1.2, na.rm = TRUE) +
+        ggplot2::geom_hline(
+          ggplot2::aes(yintercept = min, color = "Min"),
+          linewidth = 1.2,
+          na.rm = TRUE
+        ) +
+        ggplot2::geom_hline(
+          ggplot2::aes(yintercept = max, color = "Max"),
+          linewidth = 1.2,
+          na.rm = TRUE
+        ) +
+        ggplot2::geom_hline(
+          ggplot2::aes(yintercept = default, color = "Default"),
+          linewidth = 1.2,
+          na.rm = TRUE
+        ) +
         ggplot2::geom_point(
           ggplot2::aes(y = calibrated, color = point_color),
-          shape = 16, size = 3, na.rm = TRUE
+          shape = 16,
+          size = 3,
+          na.rm = TRUE
         ) +
         ggplot2::coord_flip() +
         ggplot2::scale_color_manual(
           name = "Legend",
           values = c(
-            "Min"         = "black",
-            "Max"         = "grey50",
-            "Default"     = "blue",
+            "Min" = "black",
+            "Max" = "grey50",
+            "Default" = "blue",
             "Calibration" = "red"
           ),
-          breaks = c("Min","Max","Default","Calibration")
+          breaks = c("Min", "Max", "Default", "Calibration")
         ) +
         ggplot2::labs(title = title, x = NULL, y = NULL) +
         ggplot2::theme_classic(base_size = 12) +
         ggplot2::theme(
           legend.position = "bottom",
-          axis.text.y  = ggplot2::element_blank(),
+          axis.text.y = ggplot2::element_blank(),
           axis.ticks.y = ggplot2::element_blank()
         ) +
         ggplot2::facet_wrap(~facet_label, scales = "free")
     }
 
-
     ## ---- build plots once ---------------------------------------------------
-    crop_plot    <- plot_params_facets(crop_dat,    "CROP parameters: default vs calibrated")
-    disease_plot <- plot_params_facets(disease_dat, "DISEASE parameters: default vs calibrated")
+    crop_plot <- plot_params_facets(
+      crop_dat,
+      "CROP parameters: default vs calibrated"
+    )
+    disease_plot <- plot_params_facets(
+      disease_dat,
+      "DISEASE parameters: default vs calibrated"
+    )
 
     ## ---- expose in result ---------------------------------------------------
-    if (!exists("result")) result <- list()
+    if (!exists("result")) {
+      result <- list()
+    }
     result$diagnostics$calibration <- list(
       tables = list(crop = crop_dat, disease = disease_dat),
-      plots  = list(crop = crop_plot, disease = disease_plot)
+      plots = list(crop = crop_plot, disease = disease_plot)
     )
 
     ## ---- cleanup calibrated param CSVs quietly ------------------------------
@@ -1182,51 +1553,69 @@ franchestyn <- function(weather_data,
 
     ## ---- return updated parameter lists for reuse ---------------------------
     result$parameters <- list(
-      crop    = updatedCropParameters,   # will be NULL if disease-only calibration
+      crop = updatedCropParameters, # will be NULL if disease-only calibration
       disease = updatedDiseaseParameters
     )
   }
-
 
   # --- OPTIONAL SPOOKY MESSAGE ---------------------------------------------
   if (isTRUE(franchy_message)) {
     tryCatch({
       # ---------------- personality setup ----------------
-      personality <- match.arg(personality, choices = c("scientist","extensionist","farmer"))
+      personality <- match.arg(
+        personality,
+        choices = c("scientist", "extensionist", "farmer")
+      )
 
-      system_role <- switch(personality,
-                            "scientist"    = "You are a concise agrometeorology & plant pathology scientist. Neutral, precise, scientific. Use mm/dd dates, no DOY, no emojis.",
-                            "extensionist" = "You are a farm advisor. Be clear, supportive, and practical. Use mm/dd dates, no jargon, no emojis.",
-                            "farmer"       = "You are a seasoned farmer. Use simple words, warm tone, and memorable phrasing. Use mm/dd dates, no DOY, no emojis."
+      system_role <- switch(
+        personality,
+        "scientist" = "You are a concise agrometeorology & plant pathology scientist. Neutral, precise, scientific. Use mm/dd dates, no DOY, no emojis.",
+        "extensionist" = "You are a farm advisor. Be clear, supportive, and practical. Use mm/dd dates, no jargon, no emojis.",
+        "farmer" = "You are a seasoned farmer. Use simple words, warm tone, and memorable phrasing. Use mm/dd dates, no DOY, no emojis."
       )
 
       # ---------------- helpers ----------------
-      safe_mean  <- function(x, k = 1) round(mean(x, na.rm = TRUE), k)
+      safe_mean <- function(x, k = 1) round(mean(x, na.rm = TRUE), k)
       safe_round <- function(x, k = 1) if (is.null(x)) NA_real_ else round(x, k)
-      .parse_output_date <- function(x) as.Date(x, tryFormats = c("%m/%d/%Y", "%Y-%m-%d"))
-      .year_doy_to_date  <- function(year, doy) {
-        y <- suppressWarnings(as.integer(year)); d <- suppressWarnings(as.integer(doy))
+      .parse_output_date <- function(x) {
+        as.Date(x, tryFormats = c("%m/%d/%Y", "%Y-%m-%d"))
+      }
+      .year_doy_to_date <- function(year, doy) {
+        y <- suppressWarnings(as.integer(year))
+        d <- suppressWarnings(as.integer(doy))
         as.Date(d - 1L, origin = sprintf("%04d-01-01", y))
       }
-      fmt_mmdd <- function(dates) ifelse(is.na(dates), NA_character_, format(as.Date(dates), "%m/%d"))
+      fmt_mmdd <- function(dates) {
+        ifelse(is.na(dates), NA_character_, format(as.Date(dates), "%m/%d"))
+      }
       .find_doy_col <- function(df) {
         nms <- names(df)
-        i <- which(tolower(nms) %in% c("doy","dayofyear"))[1]
-        if (is.na(i)) stop("DOY column not found.", call. = FALSE)
+        i <- which(tolower(nms) %in% c("doy", "dayofyear"))[1]
+        if (is.na(i)) {
+          stop("DOY column not found.", call. = FALSE)
+        }
         nms[i]
       }
 
       mmdd_to_date <- function(mmdd, ref_year = 2001) {
         x <- ifelse(is.na(mmdd) | mmdd == "", NA_character_, mmdd)
-        y <- paste0(ref_year, "-", sub("^([0-9]{1,2})/([0-9]{1,2})$", "\\1-\\2", x))
+        y <- paste0(
+          ref_year,
+          "-",
+          sub("^([0-9]{1,2})/([0-9]{1,2})$", "\\1-\\2", x)
+        )
         suppressWarnings(as.Date(y, format = "%Y-%m-%d"))
       }
       median_mmdd_from_dates <- function(dates) {
         dates <- as.Date(dates)
-        if (!length(dates) || all(is.na(dates))) return(NA_character_)
+        if (!length(dates) || all(is.na(dates))) {
+          return(NA_character_)
+        }
         doy <- as.integer(strftime(dates, "%j"))
         med <- stats::median(doy, na.rm = TRUE)
-        if (is.na(med)) return(NA_character_)
+        if (is.na(med)) {
+          return(NA_character_)
+        }
         format(as.Date(med - 1L, origin = "2001-01-01"), "%m/%d")
       }
 
@@ -1235,10 +1624,17 @@ franchestyn <- function(weather_data,
       # - Otherwise, reconstruct Date per row using Year + DOY
       detect_epidemic_phases_dates <- function(df_daily) {
         if (!nrow(df_daily)) {
-          return(data.frame(GrowingSeason=integer(), onset_date=character(),
-                            rapid_date=character(), peak_date=character(),
-                            onset_doy=integer(), rapid_doy=integer(), peak_doy=integer(),
-                            peak_sev=numeric(), stringsAsFactors = FALSE))
+          return(data.frame(
+            GrowingSeason = integer(),
+            onset_date = character(),
+            rapid_date = character(),
+            peak_date = character(),
+            onset_doy = integer(),
+            rapid_doy = integer(),
+            peak_doy = integer(),
+            peak_sev = numeric(),
+            stringsAsFactors = FALSE
+          ))
         }
 
         # Parse/construct Date
@@ -1250,7 +1646,10 @@ franchestyn <- function(weather_data,
         if (all(is.na(Dcol))) {
           doy_col <- .find_doy_col(df_daily)
           if (!all(c("Year", doy_col) %in% names(df_daily))) {
-            stop("Need either a valid 'Date' column or both 'Year' and 'DOY' columns.", call. = FALSE)
+            stop(
+              "Need either a valid 'Date' column or both 'Year' and 'DOY' columns.",
+              call. = FALSE
+            )
           }
           Dcol <- .year_doy_to_date(df_daily$Year, df_daily[[doy_col]])
         }
@@ -1260,24 +1659,47 @@ franchestyn <- function(weather_data,
 
         daily <- tmp |>
           dplyr::group_by(GrowingSeason, .Date) |>
-          dplyr::summarise(sev = mean(DiseaseSeverity, na.rm = TRUE), .groups = "drop") |>
+          dplyr::summarise(
+            sev = mean(DiseaseSeverity, na.rm = TRUE),
+            .groups = "drop"
+          ) |>
           dplyr::arrange(GrowingSeason, .Date)
 
         phases_base <- daily |>
           dplyr::group_by(GrowingSeason) |>
           dplyr::mutate(
-            sev_max  = max(sev, na.rm = TRUE),
+            sev_max = max(sev, na.rm = TRUE),
             sev_norm = dplyr::if_else(sev_max > 0, sev / sev_max, 0),
             sev_diff = sev - dplyr::lag(sev),
-            has_epi  = sev_max > 0
+            has_epi = sev_max > 0
           ) |>
           dplyr::summarise(
-            has_epi   = any(has_epi),
-            onset_idx = { if (!has_epi[1]) NA_integer_ else { ii <- which(sev_norm >= 0.05); if (length(ii)) ii[1] else NA_integer_ } },
-            rapid_idx = { if (!has_epi[1]) NA_integer_ else { dd <- replace(sev_diff, is.na(sev_diff), -Inf); if (all(!is.finite(dd))) NA_integer_ else which.max(dd) } },
-            peak_idx  = { if (!has_epi[1]) NA_integer_ else { if (all(is.na(sev))) NA_integer_ else which.max(sev) } },
-            peak_sev  = if (!has_epi[1]) 0 else max(sev, na.rm = TRUE) * 100,
-            .groups   = "drop"
+            has_epi = any(has_epi),
+            onset_idx = {
+              if (!has_epi[1]) {
+                NA_integer_
+              } else {
+                ii <- which(sev_norm >= 0.05)
+                if (length(ii)) ii[1] else NA_integer_
+              }
+            },
+            rapid_idx = {
+              if (!has_epi[1]) {
+                NA_integer_
+              } else {
+                dd <- replace(sev_diff, is.na(sev_diff), -Inf)
+                if (all(!is.finite(dd))) NA_integer_ else which.max(dd)
+              }
+            },
+            peak_idx = {
+              if (!has_epi[1]) {
+                NA_integer_
+              } else {
+                if (all(is.na(sev))) NA_integer_ else which.max(sev)
+              }
+            },
+            peak_sev = if (!has_epi[1]) 0 else max(sev, na.rm = TRUE) * 100,
+            .groups = "drop"
           )
 
         # Map indices back to dates/DOYs; return NA when no epidemic
@@ -1285,39 +1707,75 @@ franchestyn <- function(weather_data,
           dplyr::rowwise() |>
           dplyr::mutate(
             onset_date = {
-              if (!has_epi || is.na(onset_idx)) NA_character_ else {
+              if (!has_epi || is.na(onset_idx)) {
+                NA_character_
+              } else {
                 s <- daily[daily$GrowingSeason == GrowingSeason, , drop = FALSE]
-                if (onset_idx > nrow(s)) NA_character_ else fmt_mmdd(s$.Date[onset_idx])
+                if (onset_idx > nrow(s)) {
+                  NA_character_
+                } else {
+                  fmt_mmdd(s$.Date[onset_idx])
+                }
               }
             },
             rapid_date = {
-              if (!has_epi || is.na(rapid_idx)) NA_character_ else {
+              if (!has_epi || is.na(rapid_idx)) {
+                NA_character_
+              } else {
                 s <- daily[daily$GrowingSeason == GrowingSeason, , drop = FALSE]
-                if (rapid_idx > nrow(s)) NA_character_ else fmt_mmdd(s$.Date[rapid_idx])
+                if (rapid_idx > nrow(s)) {
+                  NA_character_
+                } else {
+                  fmt_mmdd(s$.Date[rapid_idx])
+                }
               }
             },
-            peak_date  = {
-              if (!has_epi || is.na(peak_idx)) NA_character_ else {
+            peak_date = {
+              if (!has_epi || is.na(peak_idx)) {
+                NA_character_
+              } else {
                 s <- daily[daily$GrowingSeason == GrowingSeason, , drop = FALSE]
-                if (peak_idx > nrow(s)) NA_character_ else fmt_mmdd(s$.Date[peak_idx])
+                if (peak_idx > nrow(s)) {
+                  NA_character_
+                } else {
+                  fmt_mmdd(s$.Date[peak_idx])
+                }
               }
             },
             onset_doy = {
-              if (!has_epi || is.na(onset_idx)) NA_integer_ else {
+              if (!has_epi || is.na(onset_idx)) {
+                NA_integer_
+              } else {
                 s <- daily[daily$GrowingSeason == GrowingSeason, , drop = FALSE]
-                if (onset_idx > nrow(s)) NA_integer_ else as.integer(strftime(s$.Date[onset_idx], "%j"))
+                if (onset_idx > nrow(s)) {
+                  NA_integer_
+                } else {
+                  as.integer(strftime(s$.Date[onset_idx], "%j"))
+                }
               }
             },
             rapid_doy = {
-              if (!has_epi || is.na(rapid_idx)) NA_integer_ else {
+              if (!has_epi || is.na(rapid_idx)) {
+                NA_integer_
+              } else {
                 s <- daily[daily$GrowingSeason == GrowingSeason, , drop = FALSE]
-                if (rapid_idx > nrow(s)) NA_integer_ else as.integer(strftime(s$.Date[rapid_idx], "%j"))
+                if (rapid_idx > nrow(s)) {
+                  NA_integer_
+                } else {
+                  as.integer(strftime(s$.Date[rapid_idx], "%j"))
+                }
               }
             },
-            peak_doy  = {
-              if (!has_epi || is.na(peak_idx)) NA_integer_ else {
+            peak_doy = {
+              if (!has_epi || is.na(peak_idx)) {
+                NA_integer_
+              } else {
                 s <- daily[daily$GrowingSeason == GrowingSeason, , drop = FALSE]
-                if (peak_idx > nrow(s)) NA_integer_ else as.integer(strftime(s$.Date[peak_idx], "%j"))
+                if (peak_idx > nrow(s)) {
+                  NA_integer_
+                } else {
+                  as.integer(strftime(s$.Date[peak_idx], "%j"))
+                }
               }
             }
           ) |>
@@ -1329,11 +1787,24 @@ franchestyn <- function(weather_data,
 
       # First treatment per season as DATE STRING and timing class vs onset
       first_treatment_dates <- function(management_data, seasons, phases_df) {
-        tr_cols <- grep("^treatment_\\d+$", names(management_data), value = TRUE, ignore.case = TRUE)
+        tr_cols <- grep(
+          "^treatment_\\d+$",
+          names(management_data),
+          value = TRUE,
+          ignore.case = TRUE
+        )
         if (!length(tr_cols)) {
-          return(data.frame(GrowingSeason = seasons, first_spray_date = NA_character_, timing_class = NA_character_))
+          return(data.frame(
+            GrowingSeason = seasons,
+            first_spray_date = NA_character_,
+            timing_class = NA_character_
+          ))
         }
-        tr_cols <- tr_cols[order(as.integer(sub("^treatment_(\\d+)$", "\\1", tr_cols)))]
+        tr_cols <- tr_cols[order(as.integer(sub(
+          "^treatment_(\\d+)$",
+          "\\1",
+          tr_cols
+        )))]
 
         out <- lapply(seasons, function(yr) {
           row_idx <- integer(0)
@@ -1342,29 +1813,49 @@ franchestyn <- function(weather_data,
             row_idx <- which(ychar == as.character(yr))
             if (!length(row_idx)) row_idx <- which(tolower(ychar) == "all")
           }
-          if (!length(row_idx)) row_idx <- 1L
+          if (!length(row_idx)) {
+            row_idx <- 1L
+          }
           row_idx <- row_idx[1]
 
-          t_doys <- suppressWarnings(as.numeric(unlist(management_data[row_idx, tr_cols, drop = FALSE])))
+          t_doys <- suppressWarnings(as.numeric(unlist(management_data[
+            row_idx,
+            tr_cols,
+            drop = FALSE
+          ])))
           t_doys <- t_doys[!is.na(t_doys)]
           if (!length(t_doys)) {
-            return(data.frame(GrowingSeason = yr, first_spray_date = NA_character_, timing_class = NA_character_))
+            return(data.frame(
+              GrowingSeason = yr,
+              first_spray_date = NA_character_,
+              timing_class = NA_character_
+            ))
           }
           t1_doy <- t_doys[1]
           onset_row <- phases_df[phases_df$GrowingSeason == yr, , drop = FALSE]
-          onset_doy <- if (nrow(onset_row)) suppressWarnings(as.numeric(onset_row$onset_doy[1])) else NA_real_
+          onset_doy <- if (nrow(onset_row)) {
+            suppressWarnings(as.numeric(onset_row$onset_doy[1]))
+          } else {
+            NA_real_
+          }
 
           # classify relative to onset using DOYs (works across winter/spring sowing)
-          cls <- if (is.na(onset_doy) || is.na(t1_doy)) NA_character_ else {
-            if (t1_doy <  onset_doy) "preventive"
-            else if (t1_doy <= onset_doy + 7) "on-time"
-            else "late"
+          cls <- if (is.na(onset_doy) || is.na(t1_doy)) {
+            NA_character_
+          } else {
+            if (t1_doy < onset_doy) {
+              "preventive"
+            } else if (t1_doy <= onset_doy + 7) {
+              "on-time"
+            } else {
+              "late"
+            }
           }
 
           data.frame(
-            GrowingSeason    = yr,
+            GrowingSeason = yr,
             first_spray_date = fmt_mmdd(.year_doy_to_date(yr, t1_doy)),
-            timing_class     = cls,
+            timing_class = cls,
             stringsAsFactors = FALSE
           )
         })
@@ -1373,67 +1864,106 @@ franchestyn <- function(weather_data,
 
       # Summarize metrics (RMSE/R²/Bias) by variable, using medians across years
       summarize_metrics <- function(metrics_df) {
-        if (is.null(metrics_df) || !nrow(metrics_df)) return("not available.")
+        if (is.null(metrics_df) || !nrow(metrics_df)) {
+          return("not available.")
+        }
         nm <- tolower(names(metrics_df))
-        vcol_idx <- which(nm %in% c("variable","var","name","metric"))[1]
-        if (is.na(vcol_idx)) return("not available.")
+        vcol_idx <- which(nm %in% c("variable", "var", "name", "metric"))[1]
+        if (is.na(vcol_idx)) {
+          return("not available.")
+        }
         vcol <- names(metrics_df)[vcol_idx]
         num_df <- metrics_df[sapply(metrics_df, is.numeric)]
-        if (!ncol(num_df)) return("not available.")
-        agg <- stats::aggregate(num_df, list(Variable = metrics_df[[vcol]]),
-                                FUN = function(x) suppressWarnings(median(as.numeric(x), na.rm = TRUE)))
+        if (!ncol(num_df)) {
+          return("not available.")
+        }
+        agg <- stats::aggregate(
+          num_df,
+          list(Variable = metrics_df[[vcol]]),
+          FUN = function(x) {
+            suppressWarnings(median(as.numeric(x), na.rm = TRUE))
+          }
+        )
         lines <- apply(agg, 1, function(r) {
-          var  <- as.character(r[["Variable"]])
+          var <- as.character(r[["Variable"]])
           rmse <- suppressWarnings(as.numeric(r[["RMSE"]]))
-          r2   <- suppressWarnings(as.numeric(r[["R2"]]))
+          r2 <- suppressWarnings(as.numeric(r[["R2"]]))
           bias <- suppressWarnings(as.numeric(r[["Bias"]]))
           if (is.na(rmse) || is.na(r2)) {
             paste0(var, ": insufficient validation signal")
           } else {
-            dir <- if (!is.na(bias) && bias > 0) "overestimates" else if (!is.na(bias)) "underestimates" else "bias unclear"
-            paste0(var, ": RMSE≈", round(rmse, 2), ", R²≈", round(r2, 2), " (model ", dir, ")")
+            dir <- if (!is.na(bias) && bias > 0) {
+              "overestimates"
+            } else if (!is.na(bias)) {
+              "underestimates"
+            } else {
+              "bias unclear"
+            }
+            paste0(
+              var,
+              ": RMSE≈",
+              round(rmse, 2),
+              ", R²≈",
+              round(r2, 2),
+              " (model ",
+              dir,
+              ")"
+            )
           }
         })
         paste0("\n• ", paste(lines, collapse = "\n• "))
       }
 
       # ---------------- overall stats ----------------
-      avg_sev   <- safe_round(mean(summary_df$DiseaseSeverity * 100, na.rm = TRUE), 1)
+      avg_sev <- safe_round(
+        mean(summary_df$DiseaseSeverity * 100, na.rm = TRUE),
+        1
+      )
       avg_yield <- safe_round(mean(summary_df$YieldActual, na.rm = TRUE), 0)
-      avg_loss  <- safe_round(mean(summary_df$YieldLossPerc, na.rm = TRUE), 1)
-      mean_tx   <- safe_mean(summary_df$AveTx)
-      mean_tn   <- safe_mean(summary_df$AveTn)
-      mean_lw   <- safe_mean(summary_df$TotalLW)
-      mean_pr   <- safe_mean(summary_df$TotalPrec)
+      avg_loss <- safe_round(mean(summary_df$YieldLossPerc, na.rm = TRUE), 1)
+      mean_tx <- safe_mean(summary_df$AveTx)
+      mean_tn <- safe_mean(summary_df$AveTn)
+      mean_lw <- safe_mean(summary_df$TotalLW)
+      mean_pr <- safe_mean(summary_df$TotalPrec)
 
-      year_max  <- summary_df$GrowingSeason[which.max(summary_df$DiseaseSeverity)]
-      year_min  <- summary_df$GrowingSeason[which.min(summary_df$DiseaseSeverity)]
+      year_max <- summary_df$GrowingSeason[which.max(
+        summary_df$DiseaseSeverity
+      )]
+      year_min <- summary_df$GrowingSeason[which.min(
+        summary_df$DiseaseSeverity
+      )]
 
       phases <- detect_epidemic_phases_dates(outputs_df)
-      seasons  <- sort(unique(summary_df$GrowingSeason))
+      seasons <- sort(unique(summary_df$GrowingSeason))
       spray_df <- first_treatment_dates(management_data, seasons, phases)
 
       onset_med_mmdd <- median_mmdd_from_dates(mmdd_to_date(phases$onset_date))
       rapid_med_mmdd <- median_mmdd_from_dates(mmdd_to_date(phases$rapid_date))
-      peak_med_mmdd  <- median_mmdd_from_dates(mmdd_to_date(phases$peak_date))
+      peak_med_mmdd <- median_mmdd_from_dates(mmdd_to_date(phases$peak_date))
 
       gs_len <- outputs_df |>
         dplyr::mutate(.Date = .parse_output_date(Date)) |>
         dplyr::group_by(GrowingSeason) |>
-        dplyr::summarise(start = min(.Date, na.rm = TRUE), end = max(.Date, na.rm = TRUE), .groups="drop") |>
+        dplyr::summarise(
+          start = min(.Date, na.rm = TRUE),
+          end = max(.Date, na.rm = TRUE),
+          .groups = "drop"
+        ) |>
         dplyr::mutate(length_days = as.numeric(end - start) + 1)
       dur_med <- safe_round(stats::median(gs_len$length_days, na.rm = TRUE), 0)
 
       no_epidemic <- !any(summary_df$DiseaseSeverity > 0, na.rm = TRUE)
-      avg_tr_num <- suppressWarnings(mean(apply(spray_df, 1, function(x) sum(!is.na(x)))))
+      avg_tr_num <- suppressWarnings(mean(apply(spray_df, 1, function(x) {
+        sum(!is.na(x))
+      })))
 
       # weather–disease associations (Pearson r)
       yearly_summary <- summary_df |>
         dplyr::group_by(GrowingSeason) |>
         dplyr::summarise(
           lw = mean(TotalLW, na.rm = TRUE),
-          tx = mean(AveTx,   na.rm = TRUE),
-          tn = mean(AveTn,   na.rm = TRUE),
+          tx = mean(AveTx, na.rm = TRUE),
+          tn = mean(AveTn, na.rm = TRUE),
           rhx = mean(AveRHx, na.rm = T),
           rhn = mean(AveRHn, na.rm = T),
           totalPrec = mean(TotalPrec, na.rm = TRUE),
@@ -1442,18 +1972,27 @@ franchestyn <- function(weather_data,
         )
       do_cor <- function(x, y) {
         ok <- is.finite(x) & is.finite(y)
-        if (sum(ok) < 4) return(NA_real_)
+        if (sum(ok) < 4) {
+          return(NA_real_)
+        }
         unname(suppressWarnings(cor(x[ok], y[ok], method = "pearson")))
       }
       cors <- data.frame(
-        var = c("rainfall", "leaf-wetness", "t max", "t min", "rh max", "rh min"),
-        r   = c(
+        var = c(
+          "rainfall",
+          "leaf-wetness",
+          "t max",
+          "t min",
+          "rh max",
+          "rh min"
+        ),
+        r = c(
           do_cor(yearly_summary$totalPrec, yearly_summary$avg_severity),
-          do_cor(yearly_summary$lw,        yearly_summary$avg_severity),
-          do_cor(yearly_summary$tx,        yearly_summary$avg_severity),
-          do_cor(yearly_summary$tn,        yearly_summary$avg_severity),
-          do_cor(yearly_summary$rhx,        yearly_summary$avg_severity),
-          do_cor(yearly_summary$rhn,        yearly_summary$avg_severity)
+          do_cor(yearly_summary$lw, yearly_summary$avg_severity),
+          do_cor(yearly_summary$tx, yearly_summary$avg_severity),
+          do_cor(yearly_summary$tn, yearly_summary$avg_severity),
+          do_cor(yearly_summary$rhx, yearly_summary$avg_severity),
+          do_cor(yearly_summary$rhn, yearly_summary$avg_severity)
         )
       )
       block_climate_cor <- if (no_epidemic) {
@@ -1467,17 +2006,32 @@ franchestyn <- function(weather_data,
       }
 
       # proportions by class
-      timing_tab <- table(factor(spray_df$timing_class, levels = c("preventive","on-time","late")), useNA = "no")
+      timing_tab <- table(
+        factor(
+          spray_df$timing_class,
+          levels = c("preventive", "on-time", "late")
+        ),
+        useNA = "no"
+      )
       total_n <- sum(timing_tab)
-      pct <- function(n) if (total_n == 0) NA_real_ else round(100 * n / total_n, 1)
+      pct <- function(n) {
+        if (total_n == 0) NA_real_ else round(100 * n / total_n, 1)
+      }
       pct_prev <- pct(timing_tab["preventive"])
-      pct_on   <- pct(timing_tab["on-time"])
+      pct_on <- pct(timing_tab["on-time"])
       pct_late <- pct(timing_tab["late"])
 
       # Count number of treatments per row of a management data.frame
       count_treatments <- function(management_data) {
-        tr_cols <- grep("^treatment_\\d+$", names(management_data), value = TRUE, ignore.case = TRUE)
-        if (!length(tr_cols)) return(integer(nrow(management_data)))
+        tr_cols <- grep(
+          "^treatment_\\d+$",
+          names(management_data),
+          value = TRUE,
+          ignore.case = TRUE
+        )
+        if (!length(tr_cols)) {
+          return(integer(nrow(management_data)))
+        }
 
         apply(management_data[tr_cols], 1, function(row) {
           sum(!is.na(row) & row != "")
@@ -1485,257 +2039,372 @@ franchestyn <- function(weather_data,
       }
 
       # --- LLM utilities ------------------------------------------------------------
-      .llm_enabled <- function(apikey) {is.character(apikey) && nzchar(apikey)}
+      .llm_enabled <- function(apikey) {
+        is.character(apikey) && nzchar(apikey)
+      }
 
       # personality mapper → textual style
       .llm_personality_style <- function(persona) {
-        switch(tolower(persona[1]),
-               "scientist"    = "neutral, scientific, concise, with technical precision",
-               "extensionist" = "practical, advisory, farmer-facing tone; clear but non-technical",
-               "farmer"       = "informal, field-wise tone with plain language",
-               "neutral, scientific" # fallback
+        switch(
+          tolower(persona[1]),
+          "scientist" = "neutral, scientific, concise, with technical precision",
+          "extensionist" = "practical, advisory, farmer-facing tone; clear but non-technical",
+          "farmer" = "informal, field-wise tone with plain language",
+          "neutral, scientific" # fallback
         )
       }
 
       # build system role for chat
       .llm_system_role <- function(persona) {
-        switch(tolower(persona[1]),
-               "scientist"    = "You are a concise agrometeorology & plant pathology scientist. Neutral, precise, scientific. Use mm/dd dates, no DOY, no emojis.",
-               "extensionist" = "You are a farm advisor. Be clear, supportive, and practical. Use mm/dd dates, no jargon, no emojis.",
-               "farmer"       = "You are a seasoned farmer. Use simple words, warm tone, and memorable phrasing. Use mm/dd dates, no DOY, no emojis.",
-               "You are a neutral assistant. Use mm/dd dates, no DOY, no emojis."
+        switch(
+          tolower(persona[1]),
+          "scientist" = "You are a concise agrometeorology & plant pathology scientist. Neutral, precise, scientific. Use mm/dd dates, no DOY, no emojis.",
+          "extensionist" = "You are a farm advisor. Be clear, supportive, and practical. Use mm/dd dates, no jargon, no emojis.",
+          "farmer" = "You are a seasoned farmer. Use simple words, warm tone, and memorable phrasing. Use mm/dd dates, no DOY, no emojis.",
+          "You are a neutral assistant. Use mm/dd dates, no DOY, no emojis."
         )
       }
 
       # generic chat wrapper
-      .llm_chat <- function(prompt,
-                            apikey,
-                            persona = "scientist",
-                            model = "openai/gpt-4o-mini",
-                            max_tokens = 300,
-                            temperature = 0.3) {
-        if (!.llm_enabled(apikey)) return(NA_character_)
+      .llm_chat <- function(
+        prompt,
+        apikey,
+        persona = "scientist",
+        model = "openai/gpt-4o-mini",
+        max_tokens = 300,
+        temperature = 0.3
+      ) {
+        if (!.llm_enabled(apikey)) {
+          return(NA_character_)
+        }
         if (!requireNamespace("httr2", quietly = TRUE)) {
-          warning("Package 'httr2' is required for LLM features. Falling back to rule-based text.")
+          warning(
+            "Package 'httr2' is required for LLM features. Falling back to rule-based text."
+          )
           return(NA_character_)
         }
 
         system_role <- .llm_system_role(persona)
 
-        req <- httr2::request("https://openrouter.ai/api/v1/chat/completions") |>
+        req <- httr2::request(
+          "https://openrouter.ai/api/v1/chat/completions"
+        ) |>
           httr2::req_headers(
             "Authorization" = paste("Bearer", apikey),
-            "Content-Type"  = "application/json"
+            "Content-Type" = "application/json"
           ) |>
           httr2::req_body_json(list(
             model = model,
             messages = list(
               list(role = "system", content = system_role),
-              list(role = "user",   content = prompt)
+              list(role = "user", content = prompt)
             ),
-            max_tokens  = max_tokens,
+            max_tokens = max_tokens,
             temperature = temperature
           ))
 
         resp <- try(httr2::req_perform(req), silent = TRUE)
-        if (inherits(resp, "try-error")) return(NA_character_)
+        if (inherits(resp, "try-error")) {
+          return(NA_character_)
+        }
         out <- try(httr2::resp_body_json(resp), silent = TRUE)
-        if (inherits(out, "try-error")) return(NA_character_)
+        if (inherits(out, "try-error")) {
+          return(NA_character_)
+        }
         txt <- try(out$choices[[1]]$message$content, silent = TRUE)
-        if (inherits(txt, "try-error") || is.null(txt)) return(NA_character_)
+        if (inherits(txt, "try-error") || is.null(txt)) {
+          return(NA_character_)
+        }
         as.character(txt)
       }
 
-
       # --- Prompt builders ----------------------------------------------------------
 
-      .llm_prompt_disease_dyn <- function(no_epidemic,
-                                          onset_med_mmdd,
-                                          rapid_med_mmdd,
-                                          peak_med_mmdd,
-                                          dur_med,
-                                          persona = "scientist") {
+      .llm_prompt_disease_dyn <- function(
+        no_epidemic,
+        onset_med_mmdd,
+        rapid_med_mmdd,
+        peak_med_mmdd,
+        dur_med,
+        persona = "scientist"
+      ) {
         style <- .llm_personality_style(persona)
         if (isTRUE(no_epidemic)) {
-          sprintf("Write a 2–3 sentence block. Context: no epidemic observed (severity≈0). Typical season length ~%s days.
+          sprintf(
+            "Write a 2–3 sentence block. Context: no epidemic observed (severity≈0). Typical season length ~%s days.
 Style: %s. Use mm/dd only, no DOY.",
-                  dur_med, style)
+            dur_med,
+            style
+          )
         } else {
-          sprintf("Write a 2–3 sentence block. Median timings: onset %s, rapid-rise %s, peak %s; season length ~%s days.
+          sprintf(
+            "Write a 2–3 sentence block. Median timings: onset %s, rapid-rise %s, peak %s; season length ~%s days.
 Style: %s. Use mm/dd only, no DOY.",
-                  onset_med_mmdd, rapid_med_mmdd, peak_med_mmdd, dur_med, style)
+            onset_med_mmdd,
+            rapid_med_mmdd,
+            peak_med_mmdd,
+            dur_med,
+            style
+          )
         }
       }
 
-      .llm_prompt_sprays <- function(no_epidemic,
-                                     avg_treatments,
-                                     pct_prev,
-                                     pct_on,
-                                     pct_late,
-                                     onset_med_mmdd,
-                                     rapid_med_mmdd,
-                                     persona = "scientist") {
+      .llm_prompt_sprays <- function(
+        no_epidemic,
+        avg_treatments,
+        pct_prev,
+        pct_on,
+        pct_late,
+        onset_med_mmdd,
+        rapid_med_mmdd,
+        persona = "scientist"
+      ) {
         style <- .llm_personality_style(persona)
         if (isTRUE(no_epidemic)) {
-          sprintf("Write a 2–3 sentence block. Inputs: average applications=%s; no epidemic observed (onset unavailable).
+          sprintf(
+            "Write a 2–3 sentence block. Inputs: average applications=%s; no epidemic observed (onset unavailable).
 Guidance: emphasize scouting and weather-based risk; suggest reducing prophylactic sprays.
 Style: %s. Use mm/dd only, no DOY.",
-                  ifelse(is.finite(avg_treatments), round(avg_treatments, 1), "NA"),
-                  style)
+            ifelse(is.finite(avg_treatments), round(avg_treatments, 1), "NA"),
+            style
+          )
         } else {
-          sprintf("Write a 2–3 sentence block. Inputs: average applications=%s; first-spray vs onset: preventive=%s%%, on-time=%s%%, late=%s%%.
+          sprintf(
+            "Write a 2–3 sentence block. Inputs: average applications=%s; first-spray vs onset: preventive=%s%%, on-time=%s%%, late=%s%%.
 Benchmarks: onset≈%s, rapid-rise≈%s (mm/dd).
 Provide timing guidance. Style: %s. Use mm/dd only, no DOY.",
-                  ifelse(is.finite(avg_treatments), round(avg_treatments, 1), "NA"),
-                  ifelse(is.na(pct_prev), "NA", pct_prev),
-                  ifelse(is.na(pct_on),   "NA", pct_on),
-                  ifelse(is.na(pct_late), "NA", pct_late),
-                  ifelse(is.na(onset_med_mmdd), "NA", onset_med_mmdd),
-                  ifelse(is.na(rapid_med_mmdd), "NA", rapid_med_mmdd),
-                  style)
+            ifelse(is.finite(avg_treatments), round(avg_treatments, 1), "NA"),
+            ifelse(is.na(pct_prev), "NA", pct_prev),
+            ifelse(is.na(pct_on), "NA", pct_on),
+            ifelse(is.na(pct_late), "NA", pct_late),
+            ifelse(is.na(onset_med_mmdd), "NA", onset_med_mmdd),
+            ifelse(is.na(rapid_med_mmdd), "NA", rapid_med_mmdd),
+            style
+          )
         }
       }
 
       # --- Persona-aware section headers --------------------------------------------
       .section_headers <- function(persona) {
-        switch(tolower(persona[1]),
-               "scientist" = list(
-                 overview   = "🧐 OVERVIEW",
-                 weather    = "🌧️ WEATHER–DISEASE ASSOCIATIONS",
-                 dynamics   = "🍄 DISEASE DYNAMICS (CALENDAR DATES)",
-                 sprays     = "⚕️ FUNGICIDE PROGRAM & TIMING",
-                 metrics    = "🤖 MODEL PERFORMANCE",
-                 yearly     = "📅 YEARLY HIGHLIGHTS",
-                 proverb    = "💬 PROVERB"
-               ),
-               "extensionist" = list(
-                 overview   = "📋 ADVISORY NOTES",
-                 weather    = "🌦️ WEATHER & DISEASE LINK",
-                 dynamics   = "🌱 CROP & DISEASE CYCLE",
-                 sprays     = "💊 SPRAY PROGRAM",
-                 metrics    = "📊 MODEL CHECK",
-                 yearly     = "📅 FIELD SEASON HIGHLIGHTS",
-                 proverb    = "💬 FIELD WISDOM"
-               ),
-               "farmer" = list(
-                 overview   = "🌱 FIELD NOTES",
-                 weather    = "🌦️ WEATHER & DISEASE",
-                 dynamics   = "🍂 SEASON’S DISEASE STORY",
-                 sprays     = "💉 SPRAYING PRACTICES",
-                 metrics    = "🔍 HOW THE MODEL DID",
-                 yearly     = "📅 SEASON-BY-SEASON HIGHLIGHTS",
-                 proverb    = "💬 FARM SAYING"
-               ),
-               # fallback
-               list(
-                 overview   = "🧐 OVERVIEW",
-                 weather    = "🌧️ WEATHER–DISEASE ASSOCIATIONS",
-                 dynamics   = "🍄 DISEASE DYNAMICS (CALENDAR DATES)",
-                 sprays     = "⚕️ FUNGICIDE PROGRAM & TIMING",
-                 metrics    = "🤖 MODEL PERFORMANCE",
-                 yearly     = "📅 YEARLY HIGHLIGHTS",
-                 proverb    = "💬 PROVERB"
-               )
+        switch(
+          tolower(persona[1]),
+          "scientist" = list(
+            overview = "🧐 OVERVIEW",
+            weather = "🌧️ WEATHER–DISEASE ASSOCIATIONS",
+            dynamics = "🍄 DISEASE DYNAMICS (CALENDAR DATES)",
+            sprays = "⚕️ FUNGICIDE PROGRAM & TIMING",
+            metrics = "🤖 MODEL PERFORMANCE",
+            yearly = "📅 YEARLY HIGHLIGHTS",
+            proverb = "💬 PROVERB"
+          ),
+          "extensionist" = list(
+            overview = "📋 ADVISORY NOTES",
+            weather = "🌦️ WEATHER & DISEASE LINK",
+            dynamics = "🌱 CROP & DISEASE CYCLE",
+            sprays = "💊 SPRAY PROGRAM",
+            metrics = "📊 MODEL CHECK",
+            yearly = "📅 FIELD SEASON HIGHLIGHTS",
+            proverb = "💬 FIELD WISDOM"
+          ),
+          "farmer" = list(
+            overview = "🌱 FIELD NOTES",
+            weather = "🌦️ WEATHER & DISEASE",
+            dynamics = "🍂 SEASON’S DISEASE STORY",
+            sprays = "💉 SPRAYING PRACTICES",
+            metrics = "🔍 HOW THE MODEL DID",
+            yearly = "📅 SEASON-BY-SEASON HIGHLIGHTS",
+            proverb = "💬 FARM SAYING"
+          ),
+          # fallback
+          list(
+            overview = "🧐 OVERVIEW",
+            weather = "🌧️ WEATHER–DISEASE ASSOCIATIONS",
+            dynamics = "🍄 DISEASE DYNAMICS (CALENDAR DATES)",
+            sprays = "⚕️ FUNGICIDE PROGRAM & TIMING",
+            metrics = "🤖 MODEL PERFORMANCE",
+            yearly = "📅 YEARLY HIGHLIGHTS",
+            proverb = "💬 PROVERB"
+          )
         )
       }
 
       # --- WEATHER–DISEASE ASSOCIATIONS ---------------------------------------------
-      .llm_prompt_weather_assoc <- function(cors, no_epidemic, persona="scientist") {
+      .llm_prompt_weather_assoc <- function(
+        cors,
+        no_epidemic,
+        persona = "scientist"
+      ) {
         style <- .llm_personality_style(persona)
 
         if (isTRUE(no_epidemic)) {
-          sprintf("Write 1–2 sentences. Context: no epidemic detected, so weather–disease correlations are negligible.
+          sprintf(
+            "Write 1–2 sentences. Context: no epidemic detected, so weather–disease correlations are negligible.
 Style: %s. Be concise, mm/dd dates if needed, no DOY.",
-                  style)
+            style
+          )
         } else {
-          cors_text <- paste(cors$var, "(r=", sprintf("%.2f", cors$r), ")", collapse = "; ")
-          sprintf("Write 1–2 sentences summarizing weather–disease associations.
+          cors_text <- paste(
+            cors$var,
+            "(r=",
+            sprintf("%.2f", cors$r),
+            ")",
+            collapse = "; "
+          )
+          sprintf(
+            "Write 1–2 sentences summarizing weather–disease associations.
 Inputs: %s.
 Style: %s. Be concise, no DOY.",
-                  cors_text, style)
+            cors_text,
+            style
+          )
         }
       }
 
-      get_llm_weather_assoc <- function(apikey, cors, no_epidemic, persona="scientist") {
+      get_llm_weather_assoc <- function(
+        apikey,
+        cors,
+        no_epidemic,
+        persona = "scientist"
+      ) {
         prompt <- .llm_prompt_weather_assoc(cors, no_epidemic, persona)
-        .llm_chat(prompt, apikey, persona=persona, max_tokens=120)
+        .llm_chat(prompt, apikey, persona = persona, max_tokens = 120)
       }
 
       # --- MODEL PERFORMANCE / METRICS ----------------------------------------------
-      .llm_prompt_metrics <- function(metrics_df, persona="scientist") {
+      .llm_prompt_metrics <- function(metrics_df, persona = "scientist") {
         style <- .llm_personality_style(persona)
 
         if (is.null(metrics_df) || !nrow(metrics_df)) {
-          sprintf("Write 1 short sentence: validation metrics not available. Style: %s.", style)
+          sprintf(
+            "Write 1 short sentence: validation metrics not available. Style: %s.",
+            style
+          )
         } else {
           # Extract a human-readable string
           nm <- tolower(names(metrics_df))
-          vcol_idx <- which(nm %in% c("variable","var","name","metric"))[1]
-          vcol <- if (!is.na(vcol_idx)) names(metrics_df)[vcol_idx] else "Variable"
+          vcol_idx <- which(nm %in% c("variable", "var", "name", "metric"))[1]
+          vcol <- if (!is.na(vcol_idx)) {
+            names(metrics_df)[vcol_idx]
+          } else {
+            "Variable"
+          }
 
           num_df <- metrics_df[sapply(metrics_df, is.numeric)]
-          agg <- stats::aggregate(num_df, list(Variable = metrics_df[[vcol]]),
-                                  FUN = function(x) suppressWarnings(median(as.numeric(x), na.rm=TRUE)))
+          agg <- stats::aggregate(
+            num_df,
+            list(Variable = metrics_df[[vcol]]),
+            FUN = function(x) {
+              suppressWarnings(median(as.numeric(x), na.rm = TRUE))
+            }
+          )
 
           lines <- apply(agg, 1, function(r) {
-            var  <- as.character(r[["Variable"]])
+            var <- as.character(r[["Variable"]])
             rmse <- suppressWarnings(as.numeric(r[["RMSE"]]))
-            r2   <- suppressWarnings(as.numeric(r[["R2"]]))
+            r2 <- suppressWarnings(as.numeric(r[["R2"]]))
             bias <- suppressWarnings(as.numeric(r[["Bias"]]))
             if (is.na(rmse) || is.na(r2)) {
               paste0(var, ": insufficient validation signal")
             } else {
-              dir <- if (!is.na(bias) && bias > 0) "overestimates"
-              else if (!is.na(bias)) "underestimates" else "bias unclear"
-              paste0(var, ": RMSE≈", round(rmse,2), ", R²≈", round(r2,2), " (model ", dir, ")")
+              dir <- if (!is.na(bias) && bias > 0) {
+                "overestimates"
+              } else if (!is.na(bias)) {
+                "underestimates"
+              } else {
+                "bias unclear"
+              }
+              paste0(
+                var,
+                ": RMSE≈",
+                round(rmse, 2),
+                ", R²≈",
+                round(r2, 2),
+                " (model ",
+                dir,
+                ")"
+              )
             }
           })
           metrics_text <- paste(lines, collapse = "; ")
 
-          sprintf("Write a 1–2 sentence summary of model–observation performance.
+          sprintf(
+            "Write a 1–2 sentence summary of model–observation performance.
 Inputs: %s.
 Style: %s. Be concise, no DOY.",
-                  metrics_text, style)
+            metrics_text,
+            style
+          )
         }
       }
 
-      get_llm_weather_assoc <- function(apikey, cors, no_epidemic, persona="scientist") {
+      get_llm_weather_assoc <- function(
+        apikey,
+        cors,
+        no_epidemic,
+        persona = "scientist"
+      ) {
         prompt <- .llm_prompt_weather_assoc(cors, no_epidemic, persona)
-        .llm_chat(prompt, apikey, persona=persona, max_tokens=120)
+        .llm_chat(prompt, apikey, persona = persona, max_tokens = 120)
       }
 
-
-      get_llm_metrics <- function(apikey, metrics_df, persona="scientist") {
+      get_llm_metrics <- function(apikey, metrics_df, persona = "scientist") {
         prompt <- .llm_prompt_metrics(metrics_df, persona)
-        .llm_chat(prompt, apikey, persona=persona, max_tokens=120)
+        .llm_chat(prompt, apikey, persona = persona, max_tokens = 120)
       }
 
-      get_llm_overview <- function(apikey, stats, no_epidemic, persona="scientist") {
+      get_llm_overview <- function(
+        apikey,
+        stats,
+        no_epidemic,
+        persona = "scientist"
+      ) {
         style <- .llm_personality_style(persona)
         base_prompt <- if (no_epidemic) {
-          sprintf("Write 1–2 sentences (no emojis). Dataset: no epidemic signal.
+          sprintf(
+            "Write 1–2 sentences (no emojis). Dataset: no epidemic signal.
 Include mean yield≈%s kg/ha, Tx/Tn≈%s/%s °C, rainfall≈%s mm, leaf-wetness≈%s h.
 Style: %s.",
-                  stats$avg_yield, stats$mean_tx, stats$mean_tn, stats$mean_pr, stats$mean_lw, style)
+            stats$avg_yield,
+            stats$mean_tx,
+            stats$mean_tn,
+            stats$mean_pr,
+            stats$mean_lw,
+            style
+          )
         } else {
-          sprintf("Write 1–2 sentences (no emojis). Dataset: crop–disease dataset.
+          sprintf(
+            "Write 1–2 sentences (no emojis). Dataset: crop–disease dataset.
 Include avg severity≈%s%%, mean yield≈%s kg/ha, Tx/Tn≈%s/%s °C, rainfall≈%s mm, leaf-wetness≈%s h.
 Style: %s.",
-                  stats$avg_sev, stats$avg_yield, stats$mean_tx, stats$mean_tn, stats$mean_pr, stats$mean_lw, style)
+            stats$avg_sev,
+            stats$avg_yield,
+            stats$mean_tx,
+            stats$mean_tn,
+            stats$mean_pr,
+            stats$mean_lw,
+            style
+          )
         }
         .llm_chat(base_prompt, apikey, persona = persona, max_tokens = 90)
       }
 
-      get_llm_proverb <- function(apikey, persona="scientist") {
+      get_llm_proverb <- function(apikey, persona = "scientist") {
         style <- .llm_personality_style(persona)
-        prompt <- sprintf("Invent a single-line, field-savvy proverb about crop disease timing and moisture.
-Max 10 words, no emojis. Style: %s.", style)
+        prompt <- sprintf(
+          "Invent a single-line, field-savvy proverb about crop disease timing and moisture.
+Max 10 words, no emojis. Style: %s.",
+          style
+        )
         .llm_chat(prompt, apikey, persona = persona, max_tokens = 25)
       }
 
-
       # --- Overview / proverb -------------------------------------------------------
-      get_llm_overview <- function(apikey, stats, no_epidemic, persona="scientist") {
+      get_llm_overview <- function(
+        apikey,
+        stats,
+        no_epidemic,
+        persona = "scientist"
+      ) {
         style <- .llm_personality_style(persona)
 
         base_prompt <- if (no_epidemic) {
@@ -1743,16 +2412,25 @@ Max 10 words, no emojis. Style: %s.", style)
             "Write 1–2 sentences (no emojis). Dataset: no epidemic signal.
 Include mean yield≈%s kg/ha, Tx/Tn≈%s/%s °C, rainfall≈%s mm, leaf-wetness≈%s h.
 Style: %s.",
-            stats$avg_yield, stats$mean_tx, stats$mean_tn,
-            stats$mean_pr, stats$mean_lw, style
+            stats$avg_yield,
+            stats$mean_tx,
+            stats$mean_tn,
+            stats$mean_pr,
+            stats$mean_lw,
+            style
           )
         } else {
           sprintf(
             "Write 1–2 sentences (no emojis). Dataset: crop–disease dataset.
 Include avg severity≈%s%%, mean yield≈%s kg/ha, Tx/Tn≈%s/%s °C, rainfall≈%s mm, leaf-wetness≈%s h.
 Style: %s.",
-            stats$avg_sev, stats$avg_yield, stats$mean_tx, stats$mean_tn,
-            stats$mean_pr, stats$mean_lw, style
+            stats$avg_sev,
+            stats$avg_yield,
+            stats$mean_tx,
+            stats$mean_tn,
+            stats$mean_pr,
+            stats$mean_lw,
+            style
           )
         }
 
@@ -1760,15 +2438,22 @@ Style: %s.",
       }
 
       # WEATHER–DISEASE ASSOCIATIONS
-      llm_weather <- get_llm_weather_assoc(apikey, cors, no_epidemic, persona = personality)
+      llm_weather <- get_llm_weather_assoc(
+        apikey,
+        cors,
+        no_epidemic,
+        persona = personality
+      )
       block_climate_cor <- if (nzchar(llm_weather)) {
         llm_weather
       } else if (no_epidemic) {
         "No disease was detected across seasons; weather–disease correlations were not computed."
       } else {
-        paste0("Weather–disease associations: ",
-               paste(cors$var, "(r=", sprintf("%.2f", cors$r), ")", collapse="; "),
-               ".")
+        paste0(
+          "Weather–disease associations: ",
+          paste(cors$var, "(r=", sprintf("%.2f", cors$r), ")", collapse = "; "),
+          "."
+        )
       }
 
       # MODEL PERFORMANCE
@@ -1781,60 +2466,87 @@ Style: %s.",
 
       # --- DISEASE DYNAMICS via LLM (fallback to rule-based) ---
 
-        dd_prompt <- .llm_prompt_disease_dyn(
-          no_epidemic = no_epidemic,
-          onset_med_mmdd = onset_med_mmdd,
-          rapid_med_mmdd = rapid_med_mmdd,
-          peak_med_mmdd  = peak_med_mmdd,
-          dur_med        = dur_med
-        )
-        dd_txt <- .llm_chat(dd_prompt, apikey,persona = personality, max_tokens = 180)
-
+      dd_prompt <- .llm_prompt_disease_dyn(
+        no_epidemic = no_epidemic,
+        onset_med_mmdd = onset_med_mmdd,
+        rapid_med_mmdd = rapid_med_mmdd,
+        peak_med_mmdd = peak_med_mmdd,
+        dur_med = dur_med
+      )
+      dd_txt <- .llm_chat(
+        dd_prompt,
+        apikey,
+        persona = personality,
+        max_tokens = 180
+      )
 
       block_disease_dyn <- if (!is.na(dd_txt)) {
         dd_txt
       } else if (no_epidemic) {
         paste0(
           "No epidemic signal was detected (severity remained at or near zero). ",
-          "A typical growing season spanned ~", dur_med, " days. ",
+          "A typical growing season spanned ~",
+          dur_med,
+          " days. ",
           "Monitor canopy wetness and night temperatures; if disease pressure emerges in future seasons, ",
           "onset/peak timing will be reported here."
         )
       } else {
         paste0(
-          "Epidemics typically began around ", onset_med_mmdd, ", accelerated in ",
-          rapid_med_mmdd, ", and peaked near ", peak_med_mmdd, ". ",
-          "A typical growing season spanned ~", dur_med, " days."
+          "Epidemics typically began around ",
+          onset_med_mmdd,
+          ", accelerated in ",
+          rapid_med_mmdd,
+          ", and peaked near ",
+          peak_med_mmdd,
+          ". ",
+          "A typical growing season spanned ~",
+          dur_med,
+          " days."
         )
       }
 
       # --- FUNGICIDE PROGRAM & TIMING via LLM (fallback to rule-based) ---
       avg_tr_num <- suppressWarnings(mean(count_treatments(management_data)))
 
-        sp_prompt <- .llm_prompt_sprays(
-          no_epidemic       = no_epidemic,
-          avg_treatments    = avg_tr_num,
-          pct_prev          = pct_prev,
-          pct_on            = pct_on,
-          pct_late          = pct_late,
-          onset_med_mmdd    = onset_med_mmdd,
-          rapid_med_mmdd    = rapid_med_mmdd
-        )
-        sp_txt <- .llm_chat(sp_prompt, apikey, persona = personality, max_tokens = 180)
+      sp_prompt <- .llm_prompt_sprays(
+        no_epidemic = no_epidemic,
+        avg_treatments = avg_tr_num,
+        pct_prev = pct_prev,
+        pct_on = pct_on,
+        pct_late = pct_late,
+        onset_med_mmdd = onset_med_mmdd,
+        rapid_med_mmdd = rapid_med_mmdd
+      )
+      sp_txt <- .llm_chat(
+        sp_prompt,
+        apikey,
+        persona = personality,
+        max_tokens = 180
+      )
 
       block_sprays <- if (!is.na(sp_txt)) {
         sp_txt
       } else if (no_epidemic) {
         paste0(
-          "Fungicide program averaged ", round(avg_tr_num,1), " applications. ",
+          "Fungicide program averaged ",
+          round(avg_tr_num, 1),
+          " applications. ",
           "Onset was not detected, so timing classification is not applicable. ",
           "Disease pressure was absent; consider reducing or omitting prophylactic sprays and emphasize scouting and weather-based risk monitoring."
         )
       } else {
         paste0(
-          "Fungicide program averaged ", round(avg_tr_num,1), " applications. ",
-          "First application timing relative to onset: preventive ", pct_prev, "%, on-time ",
-          pct_on, "%, late ", pct_late, "%."
+          "Fungicide program averaged ",
+          round(avg_tr_num, 1),
+          " applications. ",
+          "First application timing relative to onset: preventive ",
+          pct_prev,
+          "%, on-time ",
+          pct_on,
+          "%, late ",
+          pct_late,
+          "%."
         )
       }
 
@@ -1843,24 +2555,39 @@ Style: %s.",
       avg_treatments <- count_treatments(management_data)
 
       stats_list <- list(
-        avg_sev   = avg_sev,
+        avg_sev = avg_sev,
         avg_yield = avg_yield,
-        mean_tx   = mean_tx,
-        mean_tn   = mean_tn,
-        mean_pr   = mean_pr,
-        mean_lw   = mean_lw
+        mean_tx = mean_tx,
+        mean_tn = mean_tn,
+        mean_pr = mean_pr,
+        mean_lw = mean_lw
       )
 
-      llm_overview <- get_llm_overview(apikey, persona = personality, stats_list, no_epidemic)
+      llm_overview <- get_llm_overview(
+        apikey,
+        persona = personality,
+        stats_list,
+        no_epidemic
+      )
 
       block_overview <- if (isTRUE(no_epidemic)) {
         if (nzchar(llm_overview)) {
           llm_overview
         } else {
           paste0(
-            "Across seasons, average disease severity was ", avg_sev, "%, with mean yield around ",
-            avg_yield, " kg/ha. Conditions averaged ", mean_tx, "/", mean_tn, " °C, ~",
-            mean_pr, " mm rainfall, and ~", mean_lw, " h leaf-wetness. ",
+            "Across seasons, average disease severity was ",
+            avg_sev,
+            "%, with mean yield around ",
+            avg_yield,
+            " kg/ha. Conditions averaged ",
+            mean_tx,
+            "/",
+            mean_tn,
+            " °C, ~",
+            mean_pr,
+            " mm rainfall, and ~",
+            mean_lw,
+            " h leaf-wetness. ",
             "No epidemic signal was detected."
           )
         }
@@ -1869,56 +2596,93 @@ Style: %s.",
           llm_overview
         } else {
           paste0(
-            "Across seasons, average disease severity was ", avg_sev, "%, with mean yield around ",
-            avg_yield, " kg/ha. Conditions averaged ", mean_tx, "/", mean_tn, " °C, ~",
-            mean_pr, " mm rainfall, and ~", mean_lw, " h leaf-wetness, creating recurrent infection windows."
+            "Across seasons, average disease severity was ",
+            avg_sev,
+            "%, with mean yield around ",
+            avg_yield,
+            " kg/ha. Conditions averaged ",
+            mean_tx,
+            "/",
+            mean_tn,
+            " °C, ~",
+            mean_pr,
+            " mm rainfall, and ~",
+            mean_lw,
+            " h leaf-wetness, creating recurrent infection windows."
           )
         }
       }
-
 
       timing_advice <- if (no_epidemic) {
         "Disease pressure was absent; consider reducing or omitting prophylactic sprays and emphasize scouting and weather-based risk monitoring."
       } else if (!is.na(pct_prev) && pct_prev >= 60) {
         paste0(
           "Applications were mostly preventive; consider delaying the first spray to just precede onset (≈ ",
-          onset_med_mmdd, ") and concentrate coverage during sustained wet-canopy periods."
+          onset_med_mmdd,
+          ") and concentrate coverage during sustained wet-canopy periods."
         )
       } else if (!is.na(pct_late) && pct_late >= 30) {
         paste0(
           "Applications often lagged the epidemic; advance the first spray to just before onset (≈ ",
-          onset_med_mmdd, ") and avoid long gaps during the rapid increase window (≈ ", rapid_med_mmdd, ")."
+          onset_med_mmdd,
+          ") and avoid long gaps during the rapid increase window (≈ ",
+          rapid_med_mmdd,
+          ")."
         )
       } else {
         paste0(
           "Timing broadly aligned with onset; keep the first spray just before onset (≈ ",
-          onset_med_mmdd, ") and tighten intervals through the rapid rise window (≈ ",
-          rapid_med_mmdd, ")."
+          onset_med_mmdd,
+          ") and tighten intervals through the rapid rise window (≈ ",
+          rapid_med_mmdd,
+          ")."
         )
       }
 
       # Metrics block
-      block_metrics <- paste0("Model–observation performance:", summarize_metrics(metrics_df))
+      block_metrics <- paste0(
+        "Model–observation performance:",
+        summarize_metrics(metrics_df)
+      )
 
       # Yearly highlights (use mm/dd everywhere)
       per_year <- summary_df |>
         dplyr::group_by(GrowingSeason) |>
         dplyr::summarise(
-          sev_pct  = safe_round(mean(DiseaseSeverity, na.rm = TRUE) * 100, 1),
-          y_act    = safe_round(mean(YieldActual,    na.rm = TRUE), 1),
-          loss_pct = safe_round(mean(YieldLossPerc,  na.rm = TRUE), 1),
-          .groups  = "drop"
+          sev_pct = safe_round(mean(DiseaseSeverity, na.rm = TRUE) * 100, 1),
+          y_act = safe_round(mean(YieldActual, na.rm = TRUE), 1),
+          loss_pct = safe_round(mean(YieldLossPerc, na.rm = TRUE), 1),
+          .groups = "drop"
         ) |>
-        dplyr::left_join(phases[, c("GrowingSeason","onset_date","rapid_date","peak_date","peak_sev")], by = "GrowingSeason") |>
-        dplyr::left_join(spray_df[, c("GrowingSeason","first_spray_date","timing_class")], by = "GrowingSeason")
+        dplyr::left_join(
+          phases[, c(
+            "GrowingSeason",
+            "onset_date",
+            "rapid_date",
+            "peak_date",
+            "peak_sev"
+          )],
+          by = "GrowingSeason"
+        ) |>
+        dplyr::left_join(
+          spray_df[, c("GrowingSeason", "first_spray_date", "timing_class")],
+          by = "GrowingSeason"
+        )
 
       badge_for <- function(gs) {
-        if (no_epidemic) "" else if (isTRUE(gs == year_max)) "[highest severity]"
-        else if (isTRUE(gs == year_min)) "[lowest severity]" else ""
+        if (no_epidemic) {
+          ""
+        } else if (isTRUE(gs == year_max)) {
+          "[highest severity]"
+        } else if (isTRUE(gs == year_min)) {
+          "[lowest severity]"
+        } else {
+          ""
+        }
       }
 
       fmt_year_line <- function(r) {
-        gs   <- r[["GrowingSeason"]]
+        gs <- r[["GrowingSeason"]]
 
         on_d <- r[["onset_date"]]
         rr_d <- r[["rapid_date"]]
@@ -1932,16 +2696,28 @@ Style: %s.",
         fs_c <- r[["timing_class"]]
 
         parts <- c(
-          sprintf("• %s: %s%% severity; %s kg/ha (%s%% loss).",
-                  gs, r[["sev_pct"]], r[["y_act"]], r[["loss_pct"]])
+          sprintf(
+            "• %s: %s%% severity; %s kg/ha (%s%% loss).",
+            gs,
+            r[["sev_pct"]],
+            r[["y_act"]],
+            r[["loss_pct"]]
+          )
         )
 
         # disease timing (add only if available)
-        if (isTRUE(nzchar(on_d))) parts <- c(parts, paste0(" Onset ", on_d))
-        if (isTRUE(nzchar(rr_d))) parts <- c(parts, paste0(", rapid rise ~", rr_d))
+        if (isTRUE(nzchar(on_d))) {
+          parts <- c(parts, paste0(" Onset ", on_d))
+        }
+        if (isTRUE(nzchar(rr_d))) {
+          parts <- c(parts, paste0(", rapid rise ~", rr_d))
+        }
         if (isTRUE(nzchar(pk_d))) {
           if (isTRUE(!is.na(pk_s))) {
-            parts <- c(parts, paste0(", peak ", pk_d, " (", round(pk_s, 1), "%)"))
+            parts <- c(
+              parts,
+              paste0(", peak ", pk_d, " (", round(pk_s, 1), "%)")
+            )
           } else {
             parts <- c(parts, paste0(", peak ", pk_d))
           }
@@ -1949,7 +2725,10 @@ Style: %s.",
 
         # peak yield (date + value), NA-safe
         if (isTRUE(nzchar(py_d)) && isTRUE(!is.na(py_v))) {
-          parts <- c(parts, paste0(". Peak yield ", round(py_v, 1), " kg/ha on ", py_d))
+          parts <- c(
+            parts,
+            paste0(". Peak yield ", round(py_v, 1), " kg/ha on ", py_d)
+          )
         }
 
         # first spray
@@ -1972,17 +2751,36 @@ Style: %s.",
         remain <- setdiff(per_year$GrowingSeason, pick_ids)
         pick_ids <- c(pick_ids, tail(sort(remain), 4 - length(pick_ids)))
       }
-      hl_years <- per_year[match(pick_ids, per_year$GrowingSeason), , drop = FALSE]
-      yearly_lines <- if (nrow(hl_years)) vapply(seq_len(nrow(hl_years)), function(i) fmt_year_line(hl_years[i, ]), FUN.VALUE = character(1)) else "• No seasonal highlights."
+      hl_years <- per_year[
+        match(pick_ids, per_year$GrowingSeason),
+        ,
+        drop = FALSE
+      ]
+      yearly_lines <- if (nrow(hl_years)) {
+        vapply(
+          seq_len(nrow(hl_years)),
+          function(i) fmt_year_line(hl_years[i, ]),
+          FUN.VALUE = character(1)
+        )
+      } else {
+        "• No seasonal highlights."
+      }
 
       # Proverb
       proverb_llm <- get_llm_proverb(apikey)
-      proverb <- if (nzchar(proverb_llm)) proverb_llm else sample(c(
-        "Spray before the rise, harvest before the fall.",
-        "Where wet nights linger, rust remembers.",
-        "A timely dose saves a season.",
-        "Moisture writes what management must read."
-      ), 1)
+      proverb <- if (nzchar(proverb_llm)) {
+        proverb_llm
+      } else {
+        sample(
+          c(
+            "Spray before the rise, harvest before the fall.",
+            "Where wet nights linger, rust remembers.",
+            "A timely dose saves a season.",
+            "Moisture writes what management must read."
+          ),
+          1
+        )
+      }
 
       # --- In report assembly -------------------------------------------------------
       headers <- .section_headers(personality)
@@ -1990,13 +2788,36 @@ Style: %s.",
       # ---------------- Final message with persona headers ----------------
       msg <- paste(
         "\n==================== 📊 FraNchEstYN Decision-support diagnostic 📊 ====================\n",
-        headers$overview, "\n",   block_overview,  "\n\n",
-        headers$weather,  "\n",   block_climate_cor,"\n\n",
-        headers$dynamics, "\n",   block_disease_dyn,"\n\n",
-        headers$sprays,   "\n",   block_sprays, "\n", timing_advice, "\n\n",
-        headers$metrics,  "\n",   block_metrics, "\n\n",
-        headers$yearly,   "\n",   paste(yearly_lines, collapse="\n"), "\n\n",
-        headers$proverb,  "\n",   proverb, "\n",
+        headers$overview,
+        "\n",
+        block_overview,
+        "\n\n",
+        headers$weather,
+        "\n",
+        block_climate_cor,
+        "\n\n",
+        headers$dynamics,
+        "\n",
+        block_disease_dyn,
+        "\n\n",
+        headers$sprays,
+        "\n",
+        block_sprays,
+        "\n",
+        timing_advice,
+        "\n\n",
+        headers$metrics,
+        "\n",
+        block_metrics,
+        "\n\n",
+        headers$yearly,
+        "\n",
+        paste(yearly_lines, collapse = "\n"),
+        "\n\n",
+        headers$proverb,
+        "\n",
+        proverb,
+        "\n",
         "======================================================================================\n",
         sep = ""
       )
@@ -2022,50 +2843,65 @@ Style: %s.",
 #' @param group_cols character vector of grouping columns
 #' @return tibble with one row per group/variable
 #' @keywords internal
-compute_error_metrics <- function(outputs_df,
-                                  group_cols = c("GrowingSeason", "Site", "Variety", "file")) {
-
+compute_error_metrics <- function(
+  outputs_df,
+  group_cols = c("GrowingSeason", "Site", "Variety", "file")
+) {
   pairs <- list(
     LightInterception = c("LightInterception", "LightInterceptionRef"),
-    DisSev            = c("DiseaseSeverity",            "DiseaseSeverityRef"),
-    YieldAttainable             = c("YieldAttainable",             "YieldAttainableRef"),
-    YieldActual             = c("YieldActual",             "YieldActualRef")
+    DisSev = c("DiseaseSeverity", "DiseaseSeverityRef"),
+    YieldAttainable = c("YieldAttainable", "YieldAttainableRef"),
+    YieldActual = c("YieldActual", "YieldActualRef")
   )
 
   present_pairs <- Filter(function(x) all(x %in% names(outputs_df)), pairs)
 
   # Remove pairs with no non-NA reference values
-  present_pairs <- Filter(function(cols) {
-    any(is.finite(suppressWarnings(as.numeric(outputs_df[[cols[2]]]))))
-  }, present_pairs)
+  present_pairs <- Filter(
+    function(cols) {
+      any(is.finite(suppressWarnings(as.numeric(outputs_df[[cols[2]]]))))
+    },
+    present_pairs
+  )
 
   if (length(present_pairs) == 0) {
-    return(dplyr::tibble())  # empty table if no usable pairs
+    return(dplyr::tibble()) # empty table if no usable pairs
   }
 
   metrics_vec <- function(sim, ref) {
     sim <- suppressWarnings(as.numeric(sim))
     ref <- suppressWarnings(as.numeric(ref))
-    ok  <- is.finite(sim) & is.finite(ref)
-    sim <- sim[ok]; ref <- ref[ok]
+    ok <- is.finite(sim) & is.finite(ref)
+    sim <- sim[ok]
+    ref <- ref[ok]
     n <- length(sim)
     if (n == 0) {
-      return(list(n = 0, Bias = NA_real_, MAE = NA_real_, RMSE = NA_real_,
-                  r = NA_real_, R2 = NA_real_, NSE = NA_real_))
+      return(list(
+        n = 0,
+        Bias = NA_real_,
+        MAE = NA_real_,
+        RMSE = NA_real_,
+        r = NA_real_,
+        R2 = NA_real_,
+        NSE = NA_real_
+      ))
     }
-    e    <- sim - ref
+    e <- sim - ref
     Bias <- mean(e)
-    MAE  <- mean(abs(e))
+    MAE <- mean(abs(e))
     RMSE <- sqrt(mean(e^2))
-    nz   <- abs(ref) > 0
+    nz <- abs(ref) > 0
     denom <- abs(sim) + abs(ref)
     sm_ok <- denom > 0
-    r  <- if (n > 1 && stats::sd(sim) > 0 && stats::sd(ref) > 0) stats::cor(sim, ref) else NA_real_
+    r <- if (n > 1 && stats::sd(sim) > 0 && stats::sd(ref) > 0) {
+      stats::cor(sim, ref)
+    } else {
+      NA_real_
+    }
     R2 <- if (is.finite(r)) r^2 else NA_real_
     denom_nse <- sum((ref - mean(ref))^2)
     NSE <- if (denom_nse > 0) 1 - sum(e^2) / denom_nse else NA_real_
-    list(n = n, Bias = Bias, MAE = MAE, RMSE = RMSE,
-         r = r, R2 = R2, NSE = NSE)
+    list(n = n, Bias = Bias, MAE = MAE, RMSE = RMSE, r = r, R2 = R2, NSE = NSE)
   }
 
   compute_for_pair <- function(df, pair_name, sim_col, ref_col) {
@@ -2075,8 +2911,13 @@ compute_error_metrics <- function(outputs_df,
         m <- metrics_vec(.data[[sim_col]], .data[[ref_col]])
         tibble::tibble(
           Variable = pair_name,
-          n = m$n, Bias = m$Bias, MAE = m$MAE, RMSE = m$RMSE,
-          r = m$r, R2 = m$R2, NSE = m$NSE
+          n = m$n,
+          Bias = m$Bias,
+          MAE = m$MAE,
+          RMSE = m$RMSE,
+          r = m$r,
+          R2 = m$R2,
+          NSE = m$NSE
         )
       })
   }
@@ -2102,20 +2943,36 @@ validate_parameter_ranges <- function(...) {
 
   for (set_name in names(param_sets)) {
     plist <- param_sets[[set_name]]
-    if (is.null(plist)) next
+    if (is.null(plist)) {
+      next
+    }
 
     for (pname in names(plist)) {
       p <- plist[[pname]]
-      if (!is.list(p)) next
+      if (!is.list(p)) {
+        next
+      }
 
-      minv <- tryCatch(p$min, error=function(e) NA)
-      maxv <- tryCatch(p$max, error=function(e) NA)
+      minv <- tryCatch(p$min, error = function(e) NA)
+      maxv <- tryCatch(p$max, error = function(e) NA)
 
-      if (is.numeric(minv) && is.numeric(maxv) && length(minv)==1 && length(maxv)==1) {
+      if (
+        is.numeric(minv) &&
+          is.numeric(maxv) &&
+          length(minv) == 1 &&
+          length(maxv) == 1
+      ) {
         if (!is.na(minv) && !is.na(maxv) && minv >= maxv) {
-          errors[[length(errors)+1]] <- paste0(
-            "In ", set_name, ": parameter '", pname,
-            "' has min=", minv, " higher than max=", maxv, ". Please correct."
+          errors[[length(errors) + 1]] <- paste0(
+            "In ",
+            set_name,
+            ": parameter '",
+            pname,
+            "' has min=",
+            minv,
+            " higher than max=",
+            maxv,
+            ". Please correct."
           )
         }
       }
@@ -2123,9 +2980,8 @@ validate_parameter_ranges <- function(...) {
   }
 
   if (length(errors)) {
-    stop(paste(errors, collapse="\n"), call.=FALSE)
+    stop(paste(errors, collapse = "\n"), call. = FALSE)
   }
 
   invisible(TRUE)
 }
-
