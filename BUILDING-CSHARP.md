@@ -22,13 +22,13 @@ Refer to your distribution's documentation for details on how to do this.
 
 1. On macOS, you can use Homebrew.
 
-```bash
+```sh
 brew install --cask dotnet-sdk@8
 ```
 
 1. Check the installation.
 
-```bash
+```sh
 dotnet --info
 dotnet --list-sdks
 ```
@@ -43,10 +43,10 @@ dotnet --list-sdks
 
 2. Open a new terminal and check the installation:
 
-   ```sh
-   dotnet --list-sdks
-   dotnet --list-runtimes
-   ```
+```sh
+dotnet --list-sdks
+dotnet --list-runtimes
+```
 
 The first command should show an SDK starting with `8.0.`.
 The second should show `Microsoft.NETCore.App 8.0.`.
