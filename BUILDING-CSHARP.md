@@ -61,7 +61,7 @@ If `dotnet` is not found, reopen the terminal and check the installation instruc
 This project currently targets .NET 8 and the R package specifically looks for its runtime; installing only a newer runtime is not enough.
 See the [.NET support policy](https://dotnet.microsoft.com/platform/support/policy/dotnet-core).
 
-## 2. Get the source code
+## 2. Get the Source Code
 
 From here the instructions are the same regardless of how you installed .NET 8.
 
@@ -75,7 +75,7 @@ cd FraNchEstYN
 Alternatively, download the `feat/cross-platform-support` branch as a ZIP from GitHub, extract it, and use `cd` in the terminal to enter the extracted folder.
 The remaining commands assume you are in the repository's top folder.
 
-## 3. Build the backend
+## 3. Build the Backend
 
 ```sh
 dotnet build src_csharp/FraNchEstYN/FraNchEstYN/FraNchEstYN.csproj --configuration Release
@@ -95,7 +95,7 @@ The folder includes `FraNchEstYN.dll`, its runtime configuration and `optimizerS
 Keep these files together.
 The program needs a valid JSON configuration and input files to run; the supplied example configuration contains Windows paths and is not ready to run unchanged on macOS or Linux.
 
-## 4. Use your build with the R package (optional)
+## 4. Use Your Build with the R Package (Optional)
 
 Building does not automatically replace the backend in the R package.
 To use your newly built backend, copy these four files into `inst/bin` before installing the package from this checkout:
