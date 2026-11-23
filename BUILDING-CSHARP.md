@@ -93,9 +93,8 @@ src_csharp/FraNchEstYN/FraNchEstYN/bin/Release/net8.0/
 
 The folder includes `FraNchEstYN.dll`, its runtime configuration and `optimizerSimplex.dll`.
 Keep these files together.
-The folder includes FraNchEstYN.dll, its runtime configuration and optimizerSimplex.dll. Keep these files together.
-The program needs a valid JSON configuration and input files to run.
-The source example at src_csharp/FraNchEstYN/FraNchEstYN/FraNchEstYNConfig.json and the R-package example at inst/bin/FraNchEstYNConfig.json use relative paths, so the are portable across platforms.
+The folder includes FraNchEstYN.dll, its runtime configuration and optimizerSimplex.dll. The program needs a valid JSON configuration and input files to run.
+The source example at src_csharp/FraNchEstYN/FraNchEstYN/FraNchEstYNConfig.json and the R-package example at inst/bin/FraNchEstYNConfig.json use relative paths, so they are portable across platforms.
 
 ## 4. Use Your Build with the R Package (Optional)
 
