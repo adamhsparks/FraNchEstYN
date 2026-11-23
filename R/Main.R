@@ -1,3 +1,24 @@
+.franchestyn_copy_backend <- function(bin_dir, work_dir) {
+  files <- list.files(bin_dir, full.names = TRUE, all.files = TRUE, no.. = TRUE)
+  files <- files[!dir.exists(files)]
+  copied <- file.copy(files, work_dir, copy.mode = TRUE)
+  if (!all(copied)) {
+    stop(
+      "Could not copy backend files to the run directory: ",
+      paste(basename(files[!copied]), collapse = ", "),
+      call. = FALSE
+    )
+  }
+}
+
+.franchestyn_calibration_files <- function(calib_dir, work_dir) {
+  for (dir in c(calib_dir, file.path(work_dir, "calibratedParameters"))) {
+    files <- list.files(dir, pattern = "\\.csv$", full.names = TRUE)
+    if (length(files)) return(files)
+  }
+  character()
+}
+
 #' Run the FraNchEstYN crop–disease simulation or calibration
 #'
 #' Prepares inputs (weather, management, crop model, parameters, reference) and
@@ -292,13 +313,9 @@ franchestyn <- function(
   }
 
   # ---- per-run scratch directory ---------------------------------------------
-  # The installed package library can be read-only and can be shared by several
-  # R sessions, so nothing is written under system.file(). The layout mirrors
-  # the installed one (bin/ plus ../calibratedParameters), so a backend that
-  # resolves relative paths against its working directory behaves the same:
-  #   run_dir/work                   backend working dir (outputs/ lives here)
-  #   run_dir/calibratedParameters   "../calibratedParameters" seen from work/
-  #   run_dir/files/...              inputs written by this function
+  # Older backends write beside their binaries, ignoring the configured output
+  # paths. Run a private copy so their results cannot affect other sessions or
+  # the installed package.
   run_dir <- tempfile("franchestyn_")
   dir.create(run_dir, recursive = TRUE, showWarnings = FALSE)
   if (!dir.exists(run_dir)) {
@@ -314,6 +331,12 @@ franchestyn <- function(
   calib_dir <- file.path(run_dir, "calibratedParameters")
   dir.create(work_dir, recursive = TRUE, showWarnings = FALSE)
   dir.create(calib_dir, recursive = TRUE, showWarnings = FALSE)
+  .franchestyn_copy_backend(bin_dir, work_dir)
+  if (.Platform$OS.type == "windows") {
+    backend <- file.path(work_dir, "FraNchEstYN.exe")
+  } else {
+    backend_args <- file.path(work_dir, "FraNchEstYN.dll")
+  }
 
   ## ------------------- CROP MODEL HANDLING ------------------- ##
   crop_model_dir <- file.path(run_dir, "files", "cropModel")
@@ -477,18 +500,6 @@ franchestyn <- function(
 
   output_dir <- file.path(work_dir, "outputs")
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
-
-  # Older backends ignore 'outputDir' / 'calibratedParametersDir' and write next
-  # to the installed binaries. Clear stale CSVs there (best effort, the folder
-  # may be read-only) so the fallback in the OUTPUTS step cannot pick them up.
-  legacy_output_dir <- file.path(bin_dir, "outputs")
-  legacy_calib_dir <- file.path(dirname(bin_dir), "calibratedParameters")
-  for (legacy_dir in c(legacy_output_dir, legacy_calib_dir)) {
-    stale <- list.files(legacy_dir, pattern = "\\.csv$", full.names = TRUE)
-    if (length(stale)) {
-      try(suppressWarnings(file.remove(stale)), silent = TRUE)
-    }
-  }
 
   # Check weather_data
   if (!is.data.frame(weather_data)) {
@@ -1200,24 +1211,6 @@ franchestyn <- function(
   )
 
   if (length(list_files_out) == 0) {
-    legacy_files <- list.files(
-      legacy_output_dir,
-      pattern = "\\.csv$",
-      full.names = TRUE
-    )
-    if (length(legacy_files)) {
-      warning(
-        "The FraNchEstYN backend wrote its results next to the installed ",
-        "binaries instead of 'outputDir'. Update the backend to honour ",
-        "'outputDir' and 'calibratedParametersDir'; concurrent runs can ",
-        "overwrite each other until then.",
-        call. = FALSE
-      )
-      list_files_out <- legacy_files
-    }
-  }
-
-  if (length(list_files_out) == 0) {
     stop(
       "FraNchEstYN completed but did not produce any output CSV files in: ",
       output_dir,
@@ -1275,9 +1268,6 @@ franchestyn <- function(
   # Assuming you already have outputs_df
   metrics_df <- compute_error_metrics(outputs_df)
 
-  # Elimina i file
-  file.remove(list_files_out)
-
   # ---- BUILD RESULT (plots + tables + outputs + updated parameters) -----------
   result <- list()
   result$outputs$simulation <- outputs_df
@@ -1295,19 +1285,7 @@ franchestyn <- function(
     }
 
     ## ---- load calibrated parameter files ------------------------------------
-    list_files_out_param <- list.files(
-      calib_dir,
-      pattern = "\\.csv$",
-      full.names = TRUE
-    )
-    if (!length(list_files_out_param)) {
-      # legacy backend location (see the OUTPUTS step)
-      list_files_out_param <- list.files(
-        legacy_calib_dir,
-        pattern = "\\.csv$",
-        full.names = TRUE
-      )
-    }
+    list_files_out_param <- .franchestyn_calibration_files(calib_dir, work_dir)
 
     param_df <- if (length(list_files_out_param)) {
       do.call(
@@ -1390,7 +1368,7 @@ franchestyn <- function(
         "found in '",
         calib_dir,
         "' or '",
-        legacy_calib_dir,
+        file.path(work_dir, "calibratedParameters"),
         "'. The returned ",
         "parameters are the inputs, not calibrated values.",
         call. = FALSE
@@ -1618,11 +1596,6 @@ franchestyn <- function(
       tables = list(crop = crop_dat, disease = disease_dat),
       plots = list(crop = crop_plot, disease = disease_plot)
     )
-
-    ## ---- cleanup calibrated param CSVs quietly ------------------------------
-    if (length(list_files_out_param)) {
-      try(suppressWarnings(file.remove(list_files_out_param)), silent = TRUE)
-    }
 
     ## ---- return updated parameter lists for reuse ---------------------------
     result$parameters <- list(
