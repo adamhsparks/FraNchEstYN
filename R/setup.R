@@ -151,7 +151,7 @@ franchestyn_setup <- function(install = NA) {
   dir,
   major = .franchestyn_dotnet_major
 ) {
-  url <- .franchestyn_dotnet_install_url()
+  install_url <- .franchestyn_dotnet_install_url()
   bash <- unname(Sys.which("bash"))
   if (!nzchar(bash)) {
     stop(
@@ -171,7 +171,7 @@ franchestyn_setup <- function(install = NA) {
   downloaded <- tryCatch(
     {
       suppressWarnings(utils::download.file(
-        url,
+        install_url,
         script,
         mode = "wb",
         quiet = TRUE
@@ -190,7 +190,7 @@ franchestyn_setup <- function(install = NA) {
   if (!length(first_line) || !startsWith(first_line, "#!")) {
     stop(
       "Could not download the installer script from ",
-      url,
+      install_url,
       " (no connection, a proxy or firewall, or the response was not a script). ",
       "Install .NET ",
       major,
