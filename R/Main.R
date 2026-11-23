@@ -281,7 +281,8 @@ franchestyn <- function(
   }
 
   # Locate the installed FraNchEstYN backend
-  bin_dir <- system.file("bin", package = "FraNchEstYN")
+  # package copy, or a build in the user folder / options(franchestyn.backend_dir)
+  bin_dir <- .franchestyn_backend_dir()
 
   if (!nzchar(bin_dir) || !dir.exists(bin_dir)) {
     stop(
@@ -3199,6 +3200,12 @@ validate_parameter_ranges <- function(...) {
     ),
     required_major
   )
+  if (.Platform$OS.type != "windows") {
+    install_hint <- paste0(
+      install_hint,
+      " On Linux and macOS, franchestyn_setup() can install it for you."
+    )
+  }
 
   if (nzchar(explicit) && !length(candidates)) {
     stop(

@@ -7,6 +7,8 @@ Run the commands in a terminal: open Terminal on macOS, or your terminal applica
 The `feat/cross-platform-support` branch also includes backend files in the R package.
 On macOS and Linux, the R package runs the included DLL using .NET 8.
 You do not need to rebuild it just to use the included backend.
+If you only need the .NET 8 *runtime* to run the package, run `franchestyn_setup()` in R instead of installing the SDK.
+The SDK below is only needed to build the backend.
 
 ## 1. Install the .NET 8 SDK
 
@@ -121,3 +123,18 @@ options(franchestyn.dotnet = "/path/to/dotnet")
 
 Replace `/path/to/dotnet` with the actual path.
 This can be useful when RStudio does not inherit the same PATH as your terminal.
+
+### Use your build without reinstalling the package
+
+Instead of copying the files into `inst/bin`, you can put the same four files in a folder of your own.
+The R package then uses them in place of the included backend, and the installed package is not changed.
+In R, create the user folder and find its path:
+
+```r
+dir.create(file.path(tools::R_user_dir("FraNchEstYN", "data"), "bin"), recursive = TRUE)
+file.path(tools::R_user_dir("FraNchEstYN", "data"), "bin")
+```
+
+Copy `FraNchEstYN.dll`, `FraNchEstYN.deps.json`, `FraNchEstYN.runtimeconfig.json` and `optimizerSimplex.dll` into that folder.
+To use a different folder, set `options(franchestyn.backend_dir = "/path/to/folder")` instead.
+Delete the files from the user folder to go back to the included backend.

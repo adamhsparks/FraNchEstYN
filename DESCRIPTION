@@ -14,6 +14,7 @@ License: file LICENSE
 URL: https://geomodellab.github.io/FraNchEstYN,
     https://github.com/GeoModelLab/FraNchEstYN
 BugReports: https://github.com/GeoModelLab/FraNchEstYN/issues
+SystemRequirements: .NET 8 runtime (see ?franchestyn_setup)
 Depends: 
     R (>= 4.2)
 Imports: 
@@ -27,7 +28,9 @@ Imports:
     processx,
     readr,
     rlang,
-    tibble
+    tibble,
+    tools,
+    utils
 Suggests: 
     boot,
     desc,
@@ -40,9 +43,10 @@ Suggests:
     rmarkdown,
     scales,
     survival,
-    testthat (>= 3.0.0),
+    testthat (>= 3.2.0),
     tidyverse,
-    usethis
+    usethis,
+    withr
 VignetteBuilder: 
     knitr
 Config/testthat/edition: 3

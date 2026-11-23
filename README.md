@@ -61,6 +61,11 @@ install.packages("devtools")
 devtools::install_github("adamhsparks/FraNchEstYN@feat/cross-platform-support")
 ```
 
+The package needs the .NET 8 runtime.
+On Linux and macOS, run `franchestyn_setup()` in R to check for it.
+If it is missing, you are asked whether to install it into `~/.dotnet` (no administrator rights needed).
+On Windows, install the runtime from the [.NET 8 download page](https://dotnet.microsoft.com/download/dotnet/8.0).
+
 ## Getting Started
 
 Minimal run example:
