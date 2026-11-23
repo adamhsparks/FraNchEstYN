@@ -17,16 +17,21 @@ To do this, you have a few options.
 ### Using Local System Tools
 
 You can use the official installer from Microsoft as detailed below or you can use system tools to handle the installation.
+
+#### Linux
+
 On Linux, you can use your distribution's package manager to handle the installation.
 Refer to your distribution's documentation for details on how to do this.
 
-1. On macOS, you can use Homebrew.
+#### macOS.
+
+If you use Homebrew, you can use the following commands.
 
 ```sh
 brew install --cask dotnet-sdk@8
 ```
 
-1. Check the installation.
+Check the installation.
 
 ```sh
 dotnet --info
