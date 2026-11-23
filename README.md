@@ -35,7 +35,7 @@ The framework integrates:
 - 📊 **Diagnostics & metrics** (RMSE, R², Bias, NSE)  
 - 🧙 **Optional narrative summaries** via Large Language Models (LLMs) in **scientist**, **extensionist**, or **farmer** styles  
 
-> ℹ️ The C# core targets **.NET 8** and uses only standard .NET APIs, making it architecturally cross-platform (Windows, Linux, macOS). Pre-built binaries are currently provided for **Windows**; Linux and macOS support requires building from source.  
+> ℹ️ The C# core targets **.NET 8**. On Linux and macOS, the R package uses the included backend DLL with the .NET 8 runtime. To build the backend yourself, see the [macOS and Linux build guide](BUILDING-CSHARP.md).
 
 ---
 
@@ -52,11 +52,11 @@ The framework integrates:
 
 ## Installation
 
-Install directly from GitHub (pre-built binary for **Windows**; see above for other platforms):
+Install directly from GitHub (Linux and macOS also require the .NET 8 runtime; see the [build guide](BUILDING-CSHARP.md)):
 
 ```r
 install.packages("devtools")
-devtools::install_github("GeoModelLab/FraNchEstYN")
+devtools::install_github("adamhsparks/FraNchEstYN@feat/cross-platform-support")
 ```
 
 ## Getting Started
