@@ -97,7 +97,13 @@ franchestyn_setup <- function(install = NA) {
       major,
       " on 10 November 2026, but FraNchEstYN currently requires it."
     )
-    if (!isTRUE(.franchestyn_ask(paste0("Install the .NET ", major, " runtime now?")))) {
+    if (
+      !isTRUE(.franchestyn_ask(paste0(
+        "Install the .NET ",
+        major,
+        " runtime now?"
+      )))
+    ) {
       message("Nothing was installed.")
       return(invisible(NULL))
     }
@@ -124,7 +130,10 @@ franchestyn_setup <- function(install = NA) {
 # `options(franchestyn.dotnet_install_url)` exists for the package's own tests
 # (it lets them use a local file instead of the Internet).
 .franchestyn_dotnet_install_url <- function() {
-  getOption("franchestyn.dotnet_install_url", "https://dot.net/v1/dotnet-install.sh")
+  getOption(
+    "franchestyn.dotnet_install_url",
+    "https://dot.net/v1/dotnet-install.sh"
+  )
 }
 
 # Thin wrappers so tests can replace the parts that depend on the session.
@@ -138,7 +147,10 @@ franchestyn_setup <- function(install = NA) {
 # @param major .NET major version; the channel is `<major>.0`.
 # @return Path to the installed `dotnet` executable. Errors if the script
 #   cannot be downloaded, fails, or does not leave a usable runtime.
-.franchestyn_install_dotnet <- function(dir, major = .franchestyn_dotnet_major) {
+.franchestyn_install_dotnet <- function(
+  dir,
+  major = .franchestyn_dotnet_major
+) {
   url <- .franchestyn_dotnet_install_url()
   bash <- unname(Sys.which("bash"))
   if (!nzchar(bash)) {
@@ -158,12 +170,19 @@ franchestyn_setup <- function(install = NA) {
 
   downloaded <- tryCatch(
     {
-      suppressWarnings(utils::download.file(url, script, mode = "wb", quiet = TRUE))
+      suppressWarnings(utils::download.file(
+        url,
+        script,
+        mode = "wb",
+        quiet = TRUE
+      ))
       TRUE
     },
     error = function(e) FALSE
   )
-  first_line <- if (downloaded && file.exists(script) && file.size(script) > 0) {
+  first_line <- if (
+    downloaded && file.exists(script) && file.size(script) > 0
+  ) {
     readLines(script, n = 1L, warn = FALSE)
   } else {
     character()
