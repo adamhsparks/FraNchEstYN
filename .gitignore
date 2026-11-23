@@ -14,3 +14,15 @@ shiny
 out
 tests
 _to_delete
+
+# .NET build outputs
+**/bin/
+**/obj/
+
+# .NET user-specific files
+*.user
+*.suo
+
+# Keep the .NET runtime files distributed with the R package
+!inst/bin/
+!inst/bin/**
