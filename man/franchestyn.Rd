@@ -156,6 +156,13 @@ communication styles (\code{"scientist"}, \code{"extensionist"},
 - Column matching is forgiving (case-insensitive, ignores underscores/dashes).
 - If \code{calibration="none"} and \code{reference_data} is missing,
   a dummy dataset is created for compatibility.
+- All backend inputs and outputs live in a per-run temporary directory that
+  is removed on exit; nothing is written to the installed package. Set
+  \code{options(franchestyn.keep_run_dir = TRUE)} to keep it for debugging.
+- On Linux/macOS the .NET 8 runtime is located via
+  \code{options(franchestyn.dotnet = "/path/to/dotnet")} or the
+  \code{FRANCHESTYN_DOTNET} environment variable, then \code{DOTNET_ROOT},
+  \code{PATH} and the usual install locations.
 }
 \examples{
 \dontrun{
