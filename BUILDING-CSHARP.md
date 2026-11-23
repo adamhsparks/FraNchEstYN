@@ -81,7 +81,7 @@ The remaining commands assume you are in the repository's top folder.
 dotnet build src_csharp/FraNchEstYN/FraNchEstYN/FraNchEstYN.csproj --configuration Release
 ```
 
-The first build may need an internet connection to restore dependencies.
+The first build may need an Internet connection to restore dependencies.
 Look for `Build succeeded` in the output.
 Warnings are not necessarily errors; if the build fails, read the error messages above the summary.
 
