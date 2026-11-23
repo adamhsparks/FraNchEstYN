@@ -17,10 +17,10 @@
     "weatherTimeStep": "hourly"
   },
   "paths": {
-    "weatherDir": "C:\\Program Files\\R\\R-4.4.2\\library\\FraNchEstYN\\bin\\files\\weather",
-    "referenceFilePaths": "C:\\Program Files\\R\\R-4.4.2\\library\\FraNchEstYN\\bin\\files\\reference",
-    "paramFile": "C:\\Program Files\\R\\R-4.4.2\\library\\FraNchEstYN\\bin\\files\\parameters\\franchestynParameters.csv",
-    "sowingFile": "C:\\Program Files\\R\\R-4.4.2\\library\\FraNchEstYN\\bin\\files\\management\\sowing.csv",
+    "weatherDir": "files/weather",
+    "referenceFilePaths": "files/reference",
+    "paramFile": "files/parameters/franchestynParameters.csv",
+    "sowingFile": "files/management/sowing.csv",
     "cropModelFile": ""
   }
 }
