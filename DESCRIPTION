@@ -34,11 +34,14 @@ Suggests:
     devtools,
     kableExtra,
     knitr,
+    nasapower,
     pkgdown,
     plotly,
     rmarkdown,
+    scales,
     survival,
     testthat (>= 3.0.0),
+    tidyverse,
     usethis
 VignetteBuilder: 
     knitr

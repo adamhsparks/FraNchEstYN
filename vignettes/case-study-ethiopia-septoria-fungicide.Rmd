@@ -5,6 +5,9 @@ vignette: >
   %\VignetteIndexEntry{Septoria fungicide trials in Ethiopia}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
+  %\VignetteDepends{tidyverse}
+  %\VignetteDepends{nasapower}
+  %\VignetteDepends{scales}
 css: vignette.css
 ---
 
@@ -16,25 +19,37 @@ caption { white-space: nowrap; }
 
 ## 🎯 Goal
 
-This vignette demonstrates how to use **FraNchEstYN** to simulate yield losses under different fungicide treatment for *Septoria tritici* in Ethiopia, using data from fungicide trials on three varieties at two locations (2012–2013).  
+This vignette demonstrates how to use **FraNchEstYN** to simulate yield losses under different fungicide treatment for *Septoria tritici* in Ethiopia, using data from fungicide trials on three varieties at two locations (2012–2013).
 
 The workflow has two main steps:
 
-1. **Crop and disease calibration**: adjust crop and disease parameters using the most susceptible variety.  
-2. **Adapt varietal resistance and fungicide scheduling**: simulate alternative fungicide schedules and varietal resistance levels.  
+1. **Crop and disease calibration**: adjust crop and disease parameters using the most susceptible variety.
+2. **Adapt varietal resistance and fungicide scheduling**: simulate alternative fungicide schedules and varietal resistance levels.
 
-Reference disease and yield observations and management metadata were digitized from the [trial report](https://core.ac.uk/download/pdf/234661852.pdf) (Said and Hussien, 2016); hourly weather comes from NASA POWER. All datasets are released with the package.
+Reference disease and yield observations and management metadata were digitized from the [trial report](https://core.ac.uk/download/pdf/234661852.pdf) (Said and Hussien, 2016); hourly weather comes from NASA POWER.
+All datasets are released with the package.
 
-```{r setup, include=FALSE}
+```{r}
+#| label: setup
+#| include: false
+
 knitr::opts_chunk$set(
-  collapse = TRUE, comment = "#>", fig.width = 7, fig.height = 4,
-  message = FALSE, warning = FALSE
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 4,
+  message = FALSE,
+  warning = FALSE
 )
 ```
 
 ## 📦 Packages
+
 We load FraNchEstYN plus helper libraries for wrangling and visualization.
-```{r libraries, include=T}
+
+```{r, include=T}
+#| label: libraries
+
 library(FraNchEstYN)
 library(tidyverse)
 library(nasapower)
@@ -42,25 +57,31 @@ library(scales)
 ```
 
 ## 📥 Data loading
+
 Hourly weather data were queried from NASA POWER for Agecha and Hossana sites.
-```{r load_weatherdata, include=T}
+
+```{r, include=T}
+#| label: load_weatherdata
+
 data(weather_ethiopia)
 glimpse(weather_ethiopia)
 ```
 
 ## 📑 Disease and yield data
 
-Reference observations come from fungicide trials at two sites (Agecha and
-Hossana). As in the article, calibration uses the susceptible cultivar Gambo
-without fungicide at **both sites**. To pool the two sites into a single
-calibration run, the Hossana seasons are shifted forward by one year so that
-they do not overlap with the Agecha seasons; all sites are then labelled `"all"`.
+Reference observations come from fungicide trials at two sites (Agecha and Hossana).
+As in the article, calibration uses the susceptible cultivar Gambo without fungicide at **both sites**.
+To pool the two sites into a single calibration run, the Hossana seasons are shifted forward by one year so that they do not overlap with the Agecha seasons; all sites are then labelled `"all"`.
 
-```{r load_referencedata, include=T}
+```{r, include=T}
+#| label: load_referencedata
+
 data(reference_ethiopia)
 reference_data <- reference_ethiopia %>%
-  mutate(year = ifelse(site == "Hossana", year + 1, year),
-         site = "all") %>%
+  mutate(
+    year = ifelse(site == "Hossana", year + 1, year),
+    site = "all"
+  ) %>%
   filter(variety == "Gambo", fungicide == "no") %>%
   select(site, year, variety, DOY:YieldAttainable)
 head(reference_data)
@@ -68,11 +89,12 @@ head(reference_data)
 
 ## 🧰 Management data
 
-Basic management metadata (crop, sowing DOY, fungicide schedules) are included
-as management_ethiopia. For calibration we use a single untreated schedule,
-valid for all years and for the pooled site.
+Basic management metadata (crop, sowing DOY, fungicide schedules) are included as management_ethiopia.
+For calibration we use a single untreated schedule, valid for all years and for the pooled site.
 
-```{r load_mandata, include=T}
+```{r, include=T}
+#| label: load_mandata
+
 data(management_ethiopia)
 head(management_ethiopia)
 
@@ -83,143 +105,213 @@ management_data <- management_ethiopia |>
 ```
 
 ## 🌾🦠 Step 1 — Crop and disease calibration
+
 We first calibrate crop parameters (cycle length, flowering start and RUE; base and optimum temperatures are fixed) together with key disease parameters for Septoria (senescence acceleration, light stealer damage).
 Calibration is performed on the untreated Gambo plots of both sites.
 
-```{r crop_disease_calib,  eval=TRUE, message=FALSE, warning=FALSE, results='hide'}
+```{r}
+#| label: crop_disease_calib
+#| eval: true
+#| message: false
+#| warning: false
+#| results: "hide"
+
 # Crop: fixed cardinal temperatures and senescence; calibrate cycle length,
 # radiation use efficiency and flowering start (settings used in the article)
 thisCropParameters <- FraNchEstYN::disable_all_calibration(cropParameters$wheat)
-thisCropParameters$TbaseCrop$value                    <- 2
-thisCropParameters$ToptCrop$value                     <- 21
-thisCropParameters$HalfIntSenescence$value            <- 90
-thisCropParameters$CycleLength$calibration            <- TRUE
-thisCropParameters$CycleLength$min                    <- 2100
-thisCropParameters$CycleLength$max                    <- 2200
+thisCropParameters$TbaseCrop$value <- 2
+thisCropParameters$ToptCrop$value <- 21
+thisCropParameters$HalfIntSenescence$value <- 90
+thisCropParameters$CycleLength$calibration <- TRUE
+thisCropParameters$CycleLength$min <- 2100
+thisCropParameters$CycleLength$max <- 2200
 thisCropParameters$RadiationUseEfficiency$calibration <- TRUE
-thisCropParameters$FloweringStart$calibration         <- TRUE
-thisCropParameters$FloweringStart$min                 <- 45
+thisCropParameters$FloweringStart$calibration <- TRUE
+thisCropParameters$FloweringStart$min <- 45
 
 # Disease: Septoria defaults with the settings used in the article
 thisDiseaseParam <- diseaseParameters$septoria
-thisDiseaseParam$AssimilateSappersDamage$calibration     <- FALSE
-thisDiseaseParam$AssimilateSappersDamage$value           <- 0
+thisDiseaseParam$AssimilateSappersDamage$calibration <- FALSE
+thisDiseaseParam$AssimilateSappersDamage$value <- 0
 thisDiseaseParam$SenescenceAcceleratorDamage$calibration <- TRUE
-thisDiseaseParam$SenescenceAcceleratorDamage$max         <- 0.1
-thisDiseaseParam$OuterInoculumMax$min                    <- 0.06
-thisDiseaseParam$Topt$min                                <- 20
-thisDiseaseParam$OuterInoculumShapeRelease$value         <- 1
-thisDiseaseParam$LightStealerDamage$min                  <- 0
-thisDiseaseParam$LightStealerDamage$max                  <- 0.3
-thisDiseaseParam$HydroThermalTimeOnset$max               <- 5
-thisDiseaseParam$CyclePercentageOnset$max                <- 10
-thisDiseaseParam$CyclePercentageOnset$min                <- 0
-thisDiseaseParam$PathogenSpread$max                      <- 0.3
+thisDiseaseParam$SenescenceAcceleratorDamage$max <- 0.1
+thisDiseaseParam$OuterInoculumMax$min <- 0.06
+thisDiseaseParam$Topt$min <- 20
+thisDiseaseParam$OuterInoculumShapeRelease$value <- 1
+thisDiseaseParam$LightStealerDamage$min <- 0
+thisDiseaseParam$LightStealerDamage$max <- 0.3
+thisDiseaseParam$HydroThermalTimeOnset$max <- 5
+thisDiseaseParam$CyclePercentageOnset$max <- 10
+thisDiseaseParam$CyclePercentageOnset$min <- 0
+thisDiseaseParam$PathogenSpread$max <- 0.3
 
 # Weather: same one-year shift for Hossana, pooled site, no 29 February in 2013
 weather_calib <- weather_ethiopia |>
-  mutate(YEAR = ifelse(Site == "Hossana", YEAR + 1, YEAR),
-         site = "all") |>
+  mutate(
+    YEAR = ifelse(Site == "Hossana", YEAR + 1, YEAR),
+    site = "all"
+  ) |>
   select(-Site) |>
   filter(!(YEAR == 2013 & MO == 2 & DY == 29))
 
 df_calib <- franchestyn(
-  weather_data      = weather_calib,
-  management_data   = management_data,
-  reference_data    = reference_data,
-  cropParameters    = thisCropParameters,
+  weather_data = weather_calib,
+  management_data = management_data,
+  reference_data = reference_data,
+  cropParameters = thisCropParameters,
   diseaseParameters = thisDiseaseParam,
-  calibration       = "all",
-  start_end         = c(2012, 2014),
-  iterations        = 999
+  calibration = "all",
+  start_end = c(2012, 2014),
+  iterations = 999
 )
 
 sim <- df_calib$outputs$simulation
 ```
 
 ## 📊 Plot after calibration (Gambo, no fungicide, both sites)
-```{r plot_hossana,  eval=TRUE, echo=FALSE, message=FALSE, warning=FALSE, fig.width=9, fig.height=5, fig.alt="Simulated and observed Septoria severity, light interception and yield for untreated cultivar Gambo in Ethiopia after calibration, one panel per season"}
+
+```{r}
+#| label: plot_hossana
+#| eval: true
+#| echo: false
+#| message: false
+#| warning: false
+#| fig-width: 9
+#| fig-height: 5
+#| fig-alt: "Simulated and observed Septoria severity, light interception and yield for untreated cultivar Gambo in Ethiopia after calibration, one panel per season"
+
 yield_scale <- 4000
 
 ggplot(sim, aes(x = DaysAfterSowing)) +
   # --- light interception dynamics ---
-  geom_line(aes(y = LightIntHealthy, colour = "Light interception (healthy)"),
-            alpha = 1, na.rm = TRUE) +
-  geom_line(aes(y = LightInterception, colour = "Light interception (diseased)"),
-            linewidth = 0.5, linetype = 2, na.rm = TRUE) +
-  
+  geom_line(
+    aes(y = LightIntHealthy, colour = "Light interception (healthy)"),
+    alpha = 1,
+    na.rm = TRUE
+  ) +
+  geom_line(
+    aes(y = LightInterception, colour = "Light interception (diseased)"),
+    linewidth = 0.5,
+    linetype = 2,
+    na.rm = TRUE
+  ) +
+
   # --- fungicide efficacy (line + shaded area) ---
-  geom_line(aes(y = FungicideEfficacy, colour = "Fungicide efficacy"),
-            linewidth = 0.4, na.rm = TRUE) +
-  geom_area(aes(y = FungicideEfficacy, fill = "Fungicide efficacy"),
-            alpha = 0.5, na.rm = TRUE) +
-  
+  geom_line(
+    aes(y = FungicideEfficacy, colour = "Fungicide efficacy"),
+    linewidth = 0.4,
+    na.rm = TRUE
+  ) +
+  geom_area(
+    aes(y = FungicideEfficacy, fill = "Fungicide efficacy"),
+    alpha = 0.5,
+    na.rm = TRUE
+  ) +
+
   # --- disease severity (simulated + observed points) ---
-  geom_line(aes(y = DiseaseSeverity, colour = "Disease severity"),
-            linewidth = 0.8, na.rm = TRUE) +
-  geom_point(aes(y = DiseaseSeverityRef, colour = "Disease severity"),
-             shape = 21, size = 2.5, stroke = 0.2, na.rm = TRUE) +
-  
+  geom_line(
+    aes(y = DiseaseSeverity, colour = "Disease severity"),
+    linewidth = 0.8,
+    na.rm = TRUE
+  ) +
+  geom_point(
+    aes(y = DiseaseSeverityRef, colour = "Disease severity"),
+    shape = 21,
+    size = 2.5,
+    stroke = 0.2,
+    na.rm = TRUE
+  ) +
+
   # --- yield (attainable vs actual, with ref points) ---
-  geom_line(aes(y = YieldAttainable / yield_scale, colour = "Yield attainable"),
-            linewidth = 0.4, linetype = 2, na.rm = TRUE) +
-  geom_point(aes(y = YieldRef / yield_scale, colour = "Yield attainable"),
-             shape = 22, size = 2.3, stroke = 0.2, na.rm = TRUE) +
-  geom_line(aes(y = YieldActual / yield_scale, colour = "Yield actual"),
-            linewidth = 0.8, na.rm = TRUE) +
-  geom_point(aes(y = YieldActualRef / yield_scale, colour = "Yield actual"),
-             shape = 21, size = 2.3, alpha = 0.5, stroke = 0.2, na.rm = TRUE) +
-  
+  geom_line(
+    aes(y = YieldAttainable / yield_scale, colour = "Yield attainable"),
+    linewidth = 0.4,
+    linetype = 2,
+    na.rm = TRUE
+  ) +
+  geom_point(
+    aes(y = YieldRef / yield_scale, colour = "Yield attainable"),
+    shape = 22,
+    size = 2.3,
+    stroke = 0.2,
+    na.rm = TRUE
+  ) +
+  geom_line(
+    aes(y = YieldActual / yield_scale, colour = "Yield actual"),
+    linewidth = 0.8,
+    na.rm = TRUE
+  ) +
+  geom_point(
+    aes(y = YieldActualRef / yield_scale, colour = "Yield actual"),
+    shape = 21,
+    size = 2.3,
+    alpha = 0.5,
+    stroke = 0.2,
+    na.rm = TRUE
+  ) +
+
   # --- dual y-axis ---
   scale_y_continuous(
     name = "Disease severity / Light interception (0–1)",
     sec.axis = sec_axis(~ . * yield_scale, name = "Yield (kg/ha)")
   ) +
-  
+
   # --- manual legend ---
   scale_colour_manual(
     name = "Variables",
     values = c(
       "Light interception (healthy)" = "green",
       "Light interception (diseased)" = "black",
-      "Fungicide efficacy"            = "gold3",
-      "Disease severity"              = "darkslateblue",
-      "Yield attainable"              = "red",
-      "Yield actual"                  = "red"
+      "Fungicide efficacy" = "gold3",
+      "Disease severity" = "darkslateblue",
+      "Yield attainable" = "red",
+      "Yield actual" = "red"
     )
   ) +
   scale_fill_manual(
     name = "Area variables",
     values = c("Fungicide efficacy" = "gold3")
   ) +
-  
   theme_classic(base_size = 12) +
   theme(
     legend.position = "top",
     strip.text = element_text(size = 10),
     axis.text.x = element_text(size = 8)
   ) +
-  labs(title="Calibration (Gambo, no fungicide; one panel per pooled season)", x="") +
-  facet_wrap(~ GrowingSeason)
-
-
+  labs(
+    title = "Calibration (Gambo, no fungicide; one panel per pooled season)",
+    x = ""
+  ) +
+  facet_wrap(~GrowingSeason)
 ```
 
 ## 💊 Step 2 — Varietal resistance and fungicide schedules
-We now simulate both sites, all varieties (Gambo, Galama, Alidoro) and fungicide schedules (no, 2, 3, 7) with the calibrated crop and disease parameters, without further calibration. As in the article, only varietal resistance differs between cultivars (Gambo = 0, Galama = 0.25, Alidoro = 0.5), and fungicide parameters are set a priori to the package defaults for a protectant fungicide.
 
-```{r fungicide_calib,  eval=TRUE, message=FALSE, warning=FALSE, results='hide'}
-#calibrated parameters
+We now simulate both sites, all varieties (Gambo, Galama, Alidoro) and fungicide schedules (no, 2, 3, 7) with the calibrated crop and disease parameters, without further calibration.
+As in the article, only varietal resistance differs between cultivars (Gambo = 0, Galama = 0.25, Alidoro = 0.5), and fungicide parameters are set a priori to the package defaults for a protectant fungicide.
+
+```{r}
+#| label: fungicide_calib
+#| eval: true
+#| message: false
+#| warning: false
+#| results: "hide"
+
+# calibrated parameters
 # Disable calibration (fix crop + disease params after step 1 calibration)
-calibCrop    <- FraNchEstYN::disable_all_calibration(df_calib$parameters$crop)
-calibDisease <- FraNchEstYN::disable_all_calibration(df_calib$parameters$disease)
+calibCrop <- FraNchEstYN::disable_all_calibration(df_calib$parameters$crop)
+calibDisease <- FraNchEstYN::disable_all_calibration(
+  df_calib$parameters$disease
+)
 
 # Initialize empty list to store all simulation outputs
 outputsSim <- list()
 
 # Fungicide: protectant; these are the package default values (fungicideParameters$protectant), set a priori as in the article
-fungicideParam <- FraNchEstYN::disable_all_calibration(FraNchEstYN::fungicideParameters$protectant)
-fungicideParam$TenacityFactor$value  <- 0.05
+fungicideParam <- FraNchEstYN::disable_all_calibration(
+  FraNchEstYN::fungicideParameters$protectant
+)
+fungicideParam$TenacityFactor$value <- 0.05
 fungicideParam$DegradationRate$value <- 0.02
 fungicideParam$InitialEfficacy$value <- 1
 fungicideParam$AShapeParameter$value <- 3
@@ -234,103 +326,160 @@ for (i in seq_len(nrow(management_ethiopia))) {
 
   # 🔁 Loop over varieties (Gambo, Galama, Alidoro)
   for (var in unique(reference_ethiopia$variety)) {
-
     calibCrop$VarietalResistance$value <- varietal_resistance[[var]]
 
     # observed disease + yield for this site–variety–fungicide combination
     ref_sub <- reference_ethiopia %>%
-      filter(site == thisScheduling$site, variety == var,
-             fungicide == thisScheduling$fungicide) %>%
+      filter(
+        site == thisScheduling$site,
+        variety == var,
+        fungicide == thisScheduling$fungicide
+      ) %>%
       select(-variety)
 
     res <- franchestyn(
-      weather_data        = weather_ethiopia %>% filter(Site == thisScheduling$site),
-      management_data     = thisScheduling %>% select(-variety),
-      reference_data      = ref_sub,
-      cropParameters      = calibCrop,
-      diseaseParameters   = calibDisease,
+      weather_data = weather_ethiopia %>% filter(Site == thisScheduling$site),
+      management_data = thisScheduling %>% select(-variety),
+      reference_data = ref_sub,
+      cropParameters = calibCrop,
+      diseaseParameters = calibDisease,
       fungicideParameters = fungicideParam,
-      calibration         = "none",   # no further calibration, just simulate
-      start_end           = c(2012, 2014)
+      calibration = "none", # no further calibration, just simulate
+      start_end = c(2012, 2014)
     )
 
     # If simulation produced outputs, store them in the list
     if (!is.null(res$outputs$simulation)) {
-      outputsSim[[paste(thisScheduling$site, var, thisScheduling$fungicide, sep = "_")]] <-
+      outputsSim[[paste(
+        thisScheduling$site,
+        var,
+        thisScheduling$fungicide,
+        sep = "_"
+      )]] <-
         res$outputs$simulation %>%
-        mutate(site = thisScheduling$site, variety = var,
-               fungicide = thisScheduling$fungicide)
+        mutate(
+          site = thisScheduling$site,
+          variety = var,
+          fungicide = thisScheduling$fungicide
+        )
     }
   }
 }
 
 # Combine all site–variety–fungicide simulations into one data frame
 sim_all <- bind_rows(outputsSim)
-
 ```
 
 ### 📊 Simulations across sites, varieties and fungicide schedules
 
-```{r fungicide_plot,  eval=TRUE, echo=FALSE, message=FALSE, warning=FALSE, fig.width=10, fig.height=6, fig.alt="Simulated and observed Septoria severity, fungicide efficacy and yield in Ethiopia by site, cultivar and fungicide schedule"}
+```{r}
+#| label: fungicide_plot
+#| eval: true
+#| echo: false
+#| message: false
+#| warning: false
+#| fig-width: 10
+#| fig-height: 6
+#| fig-alt: "Simulated and observed Septoria severity, fungicide efficacy and yield in Ethiopia by site, cultivar and fungicide schedule"
 
-sim_all$fungicide <- factor(sim_all$fungicide,
-  levels=c("no","2","3","7"),
-  labels=c("no treat","2 treat","3 treat","7 treat"))
+sim_all$fungicide <- factor(
+  sim_all$fungicide,
+  levels = c("no", "2", "3", "7"),
+  labels = c("no treat", "2 treat", "3 treat", "7 treat")
+)
 
 yield_scale <- 4000
 
 ggplot(sim_all, aes(x = DaysAfterSowing)) +
   # --- light interception ---
-  geom_line(aes(y = LightIntHealthy, colour = "Light interception (healthy)"),
-            alpha = 1, na.rm = TRUE) +
-  geom_line(aes(y = LightInterception, colour = "Light interception (diseased)"),
-            linewidth = 0.5, linetype = 2, na.rm = TRUE) +
-  
+  geom_line(
+    aes(y = LightIntHealthy, colour = "Light interception (healthy)"),
+    alpha = 1,
+    na.rm = TRUE
+  ) +
+  geom_line(
+    aes(y = LightInterception, colour = "Light interception (diseased)"),
+    linewidth = 0.5,
+    linetype = 2,
+    na.rm = TRUE
+  ) +
+
   # --- fungicide efficacy ---
-  geom_line(aes(y = FungicideEfficacy, colour = "Fungicide efficacy"),
-            linewidth = 0.4, na.rm = TRUE) +
-  geom_area(aes(y = FungicideEfficacy, fill = "Fungicide efficacy"),
-            alpha = 0.5, na.rm = TRUE) +
-  
+  geom_line(
+    aes(y = FungicideEfficacy, colour = "Fungicide efficacy"),
+    linewidth = 0.4,
+    na.rm = TRUE
+  ) +
+  geom_area(
+    aes(y = FungicideEfficacy, fill = "Fungicide efficacy"),
+    alpha = 0.5,
+    na.rm = TRUE
+  ) +
+
   # --- disease severity ---
-  geom_line(aes(y = DiseaseSeverity, colour = "Disease severity"),
-            linewidth = 0.8, na.rm = TRUE) +
-  geom_point(aes(y = DiseaseSeverityRef, colour = "Disease severity"),
-             shape = 21, size = 2.5, stroke = 0.2, na.rm = TRUE) +
-  
+  geom_line(
+    aes(y = DiseaseSeverity, colour = "Disease severity"),
+    linewidth = 0.8,
+    na.rm = TRUE
+  ) +
+  geom_point(
+    aes(y = DiseaseSeverityRef, colour = "Disease severity"),
+    shape = 21,
+    size = 2.5,
+    stroke = 0.2,
+    na.rm = TRUE
+  ) +
+
   # --- yield ---
-  geom_line(aes(y = YieldAttainable / yield_scale, colour = "Yield attainable"),
-            linewidth = 0.4, linetype = 2, na.rm = TRUE) +
-  geom_point(aes(y = YieldRef / yield_scale, colour = "Yield attainable"),
-             shape = 22, size = 2.3, stroke = 0.2, na.rm = TRUE) +
-  geom_line(aes(y = YieldActual / yield_scale, colour = "Yield actual"),
-            linewidth = 0.8, na.rm = TRUE) +
-  geom_point(aes(y = YieldActualRef / yield_scale, colour = "Yield actual"),
-             shape = 21, size = 2.3, alpha = 0.5, stroke = 0.2, na.rm = TRUE) +
-  
+  geom_line(
+    aes(y = YieldAttainable / yield_scale, colour = "Yield attainable"),
+    linewidth = 0.4,
+    linetype = 2,
+    na.rm = TRUE
+  ) +
+  geom_point(
+    aes(y = YieldRef / yield_scale, colour = "Yield attainable"),
+    shape = 22,
+    size = 2.3,
+    stroke = 0.2,
+    na.rm = TRUE
+  ) +
+  geom_line(
+    aes(y = YieldActual / yield_scale, colour = "Yield actual"),
+    linewidth = 0.8,
+    na.rm = TRUE
+  ) +
+  geom_point(
+    aes(y = YieldActualRef / yield_scale, colour = "Yield actual"),
+    shape = 21,
+    size = 2.3,
+    alpha = 0.5,
+    stroke = 0.2,
+    na.rm = TRUE
+  ) +
+
   # --- dual y-axis ---
   scale_y_continuous(
     name = "Disease severity / Light interception (0–1)",
     sec.axis = sec_axis(~ . * yield_scale, name = "Yield (kg/ha)")
   ) +
-  
+
   # --- manual legend ---
   scale_colour_manual(
     name = "Variables",
     values = c(
       "Light interception (healthy)" = "green",
       "Light interception (diseased)" = "black",
-      "Fungicide efficacy"            = "gold3",
-      "Disease severity"              = "darkslateblue",
-      "Yield attainable"              = "red",
-      "Yield actual"                  = "red"
+      "Fungicide efficacy" = "gold3",
+      "Disease severity" = "darkslateblue",
+      "Yield attainable" = "red",
+      "Yield actual" = "red"
     )
   ) +
   scale_fill_manual(
     name = "Area variables",
     values = c("Fungicide efficacy" = "gold3")
   ) +
-  
   facet_grid(variety ~ site + fungicide, switch = "y") +
   theme_classic(base_size = 12) +
   theme(
@@ -341,8 +490,10 @@ ggplot(sim_all, aes(x = DaysAfterSowing)) +
     panel.spacing.x = unit(0.1, "lines"),
     axis.text.x = element_text(size = 8)
   ) +
-  labs(title="Simulated vs observed dynamics across sites, varieties, and fungicide treatments", x="") 
-
+  labs(
+    title = "Simulated vs observed dynamics across sites, varieties, and fungicide treatments",
+    x = ""
+  )
 ```
 
 ## 📝 Key take-home messages

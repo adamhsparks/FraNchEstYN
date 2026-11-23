@@ -5,6 +5,11 @@ vignette: >
   %\VignetteIndexEntry{Yellow rust on wheat in Egypt}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
+  %\VignetteDepends{tidyverse}
+  %\VignetteDepends{nasapower}
+  %\VignetteDepends{scales}
+  %\VignetteDepends{kableExtra}
+  %\VignetteDepends{plotly}
 css: vignette.css
 ---
 
@@ -16,26 +21,37 @@ caption { white-space: nowrap; }
 
 ## 🎯 Goal
 
-This vignette demonstrates how to use **FraNchEstYN** to estimate wheat yield losses, using a real dataset on yellow rust in Egypt.  
+This vignette demonstrates how to use **FraNchEstYN** to estimate wheat yield losses, using a real dataset on yellow rust in Egypt.
 
 The workflow has **three progressive steps**:
 
-1. **Crop calibration**: fit basic agronomic parameters using published trial data.  
-2. **Disease calibration**: calibrate epidemiological parameters on the most susceptible variety (*Sids12*).  
-3. **Varietal extension**: adapt parameters to other varieties, adjusting only *Radiation Use Efficiency* and *Varietal Resistance*.  
+1. **Crop calibration**: fit basic agronomic parameters using published trial data.
+2. **Disease calibration**: calibrate epidemiological parameters on the most susceptible variety (*Sids12*).
+3. **Varietal extension**: adapt parameters to other varieties, adjusting only *Radiation Use Efficiency* and *Varietal Resistance*.
 
 Data sources include digitized observations from [Omara et al. (2016)](https://doi.org/10.21608/ejp.2016.92381).
 
-```{r setup, include=FALSE}
+```{r}
+#| label: setup
+#| include: false
+
 knitr::opts_chunk$set(
-  collapse = TRUE, comment = "#>", fig.width = 7, fig.height = 4,
-  message = FALSE, warning = FALSE
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 4,
+  message = FALSE,
+  warning = FALSE
 )
 ```
 
 ## 📦 Packages
+
 We load FraNchEstYN plus helper libraries for wrangling, visualization, and reproducible tables.
-```{r libraries, include=T}
+
+```{r, include=T}
+#| label: libraries
+
 library(FraNchEstYN)
 library(tidyverse)
 library(kableExtra)
@@ -45,138 +61,210 @@ library(scales)
 ```
 
 ## 📥 Data loading
+
 We use three inputs:
 
 - weather_data: daily weather records for Sharkiya, Egypt (bundled as `weather_egypt`)
 - management_data: basic agronomic metadata (crop, sowing DOY, etc.)
 - reference_data: measured yields and disease severity for several cultivars
 
-Alternatively, daily weather can be queried with the [**nasapower**](https://github.com/ropensci/nasapower) package (maintained by Adam Sparks 🙏), as shown below.  
+Alternatively, daily weather can be queried with the [**nasapower**](https://github.com/ropensci/nasapower) package (maintained by Adam Sparks 🙏), as shown below.
 
 ### 🌦 Weather data
-The analysis in the article uses the daily weather bundled with the package
-(`weather_egypt`, daily weather records for Sharkiya), which we load here:
-```{r weatherdata_loading}
+
+The analysis in the article uses the daily weather bundled with the package (`weather_egypt`, daily weather records for Sharkiya), which we load here:
+
+```{r}
+#| label: weatherdata_loading
+
 data(weather_egypt)
 weather_data <- weather_egypt
 head(weather_data)
 ```
 
-The same kind of data can be downloaded directly from NASA POWER. Note that
-the precipitation column returned by the API (`PRECTOTCORR`) must be renamed
-to `RAIN`, otherwise it is not recognised by the daily weather reader:
-```{r weatherdata_nasapower, eval=FALSE}
+The same kind of data can be downloaded directly from NASA POWER.
+Note that the precipitation column returned by the API (`PRECTOTCORR`) must be renamed to `RAIN`, otherwise it is not recognised by the daily weather reader:
+
+```{r}
+#| label: weatherdata_nasapower
+#| eval: false
+
 weather_nasa <- nasapower::get_power(
-  community    = "ag",
-  lonlat       = c(31.5145167, 30.6150167),
-  dates        = c("2012-01-01", "2015-12-31"),
+  community = "ag",
+  lonlat = c(31.5145167, 30.6150167),
+  dates = c("2012-01-01", "2015-12-31"),
   temporal_api = "daily",
-  pars         = c("T2M_MAX", "T2M_MIN", "PRECTOTCORR")) |>
+  pars = c("T2M_MAX", "T2M_MIN", "PRECTOTCORR")
+) |>
   rename(DATE = YYYYMMDD, RAIN = PRECTOTCORR) |>
-  mutate(year = year(DATE), month = month(DATE), day = day(DATE),
-         Site = "Sharkiya", lat = 30.6150167) |>
+  mutate(
+    year = year(DATE),
+    month = month(DATE),
+    day = day(DATE),
+    Site = "Sharkiya",
+    lat = 30.6150167
+  ) |>
   select(Site, T2M_MAX, T2M_MIN, RAIN, year, month, day, lat)
 ```
 
 ### 📑 Disease and yield data
-The dataset reference_egypt is included in the package. It contains observations of disease severity, final yield, and attainable yield for several wheat varieties.
 
-```{r reference_loading}
+The dataset reference_egypt is included in the package.
+It contains observations of disease severity, final yield, and attainable yield for several wheat varieties.
+
+```{r}
+#| label: reference_loading
+
 # comes with the package
 data(reference_egypt)
 ```
+
 A preview of its structure:
-```{r showReference, echo=FALSE, message=FALSE, warning=FALSE}
+
+```{r}
+#| label: showReference
+#| echo: false
+#| message: false
+#| warning: false
+
 # quick check of structure + a tiny preview
-stopifnot(all(c("site","variety","year","DOY","disease","fint",
-                "yieldActual","yieldAttainable") %in% names(reference_egypt)))
+stopifnot(all(
+  c(
+    "site",
+    "variety",
+    "year",
+    "DOY",
+    "disease",
+    "fint",
+    "yieldActual",
+    "yieldAttainable"
+  ) %in%
+    names(reference_egypt)
+))
 
 kable(
   reference_egypt |>
     dplyr::arrange(year, variety, DOY) |>
     dplyr::slice_head(n = 6),
   caption = "reference_egypt — structure preview (first 6 rows)"
-) |> 
-  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","condensed"))
+) |>
+  kableExtra::kable_styling(
+    full_width = FALSE,
+    bootstrap_options = c("striped", "condensed")
+  )
 ```
 
-
 ### 🧰 Management data
+
 We build a minimal management dataset “on the fly”, assuming a sowing date of DOY 300 (≈ October 27).
 This provides the necessary metadata to drive the crop model.
-```{r management_build}
+
+```{r}
+#| label: management_build
+
 management_data <- data.frame(
-  crop        = "wheat",
-  variety     = "Generic",
-  resistance  = 0,        # dimensionless varietal resistance baseline
-  sowingDOY   = 300,      # adjust if you know the actual sowing date (DOY)
-  year        = "All",
+  crop = "wheat",
+  variety = "Generic",
+  resistance = 0, # dimensionless varietal resistance baseline
+  sowingDOY = 300, # adjust if you know the actual sowing date (DOY)
+  year = "All",
   stringsAsFactors = FALSE
 )
 
-kable(management_data, caption = "management_data — minimal setup for calibration") |>
+kable(
+  management_data,
+  caption = "management_data — minimal setup for calibration"
+) |>
   kableExtra::kable_styling(full_width = FALSE)
 ```
 
 ## 🌾 Step 1 — Crop calibration
 
-We first calibrate crop parameters only, with disease processes disabled. This minimal calibration aligns the fraction of intercepted radiation (FINT) and attainable yield with observations.  
+We first calibrate crop parameters only, with disease processes disabled.
+This minimal calibration aligns the fraction of intercepted radiation (FINT) and attainable yield with observations.
 
 ➡️ Goal: adjust cycle length (harvest ≈ mid-May) and attainable yield formation.
 
-```{r crop-calibration, eval=TRUE, message=FALSE, warning=FALSE, results='hide'}
+```{r}
+#| label: crop-calibration
+#| eval: true
+#| message: false
+#| warning: false
+#| results: "hide"
+
 # Select crop parameters for wheat
 thisCropParam <- FraNchEstYN::cropParameters$wheat
 
 # Crop parameter bounds for the Egyptian environment (as in the article):
 # cycle length to harvest around mid-May (~DOY 135), canopy growth and senescence slopes
-thisCropParam$CycleLength$min     <- 3500
-thisCropParam$CycleLength$max     <- 4000
-thisCropParam$SlopeGrowth$max     <- 0.005
+thisCropParam$CycleLength$min <- 3500
+thisCropParam$CycleLength$max <- 4000
+thisCropParam$SlopeGrowth$max <- 0.005
 thisCropParam$SlopeSenescence$max <- 0.02
 
 # We select the data from the most susceptible variety
-thisReference_egypt<-reference_egypt |> 
-  filter(variety=='sids12')
+thisReference_egypt <- reference_egypt |>
+  filter(variety == "sids12")
 
 # Calibrate only crop component
 df_crop <- franchestyn(
-  weather_data      = weather_data,
-  management_data   = management_data,
-  reference_data    = thisReference_egypt,
-  cropParameters    = thisCropParam,
+  weather_data = weather_data,
+  management_data = management_data,
+  reference_data = thisReference_egypt,
+  cropParameters = thisCropParam,
   diseaseParameters = FraNchEstYN::diseaseParameters$yellow_rust,
-  calibration       = "crop",
-  start_end         = c(2012, 2015),
-  iterations        = 333,
-  franchy_message   = FALSE
+  calibration = "crop",
+  start_end = c(2012, 2015),
+  iterations = 333,
+  franchy_message = FALSE
 )
 ```
 
 The resulting chart shows canopy light interception and attainable yield dynamics compared with measured values.
 
-```{r crop-calibration-chart, eval=TRUE, echo=F, message=FALSE, warning=FALSE, fig.alt="Simulated canopy light interception and attainable yield against observations for cultivar Sids12 in Sharkiya, Egypt, after crop calibration"}
+```{r, echo=F}
+#| label: crop-calibration-chart
+#| eval: true
+#| message: false
+#| warning: false
+#| fig-alt: "Simulated canopy light interception and attainable yield against observations for cultivar Sids12 in Sharkiya, Egypt, after crop calibration"
+
 ### 🌱 Crop calibration dynamics (no disease variables)
 
 outputs <- df_crop$outputs$simulation
 
 ggplot(outputs, aes(x = as.Date(Date, format = "%m/%d/%Y"))) +
   # --- canopy light interception ---
-  geom_line(aes(y = LightInterception, color = "Light interception"), size = 0.8) +
-  geom_point(aes(y = LightInterceptionRef, color = "Measured light interception"), shape = 4) +
+  geom_line(
+    aes(y = LightInterception, color = "Light interception"),
+    size = 0.8
+  ) +
+  geom_point(
+    aes(y = LightInterceptionRef, color = "Measured light interception"),
+    shape = 4
+  ) +
 
   # --- yield on secondary axis ---
-  geom_line(aes(y = YieldAttainable/6000, color = "Attainable yield (simulated)"), size = 1) +
-  geom_point(aes(y = YieldRef/6000, color = "Measured attainable yield"),
-             shape = 21, fill = "grey54", size = 2.5) +
-  geom_line(aes(y = YieldActual/6000, color = "Actual yield (simulated)"), size = .6) +
-
+  geom_line(
+    aes(y = YieldAttainable / 6000, color = "Attainable yield (simulated)"),
+    size = 1
+  ) +
+  geom_point(
+    aes(y = YieldRef / 6000, color = "Measured attainable yield"),
+    shape = 21,
+    fill = "grey54",
+    size = 2.5
+  ) +
+  geom_line(
+    aes(y = YieldActual / 6000, color = "Actual yield (simulated)"),
+    size = .6
+  ) +
   facet_wrap(~GrowingSeason, scales = "free_x", ncol = 6) +
 
   # --- axis labels and dual y-axis ---
   scale_y_continuous(
     name = "Canopy light interception (proportion)",
-    sec.axis = sec_axis(~.*6000, name = "Yield (kg/ha)")
+    sec.axis = sec_axis(~ . * 6000, name = "Yield (kg/ha)")
   ) +
   scale_x_date(date_breaks = "30 days", date_labels = "%b %d") +
 
@@ -184,16 +272,14 @@ ggplot(outputs, aes(x = as.Date(Date, format = "%m/%d/%Y"))) +
   scale_color_manual(
     name = "Variables",
     values = c(
-      "Light interception"          = "black",
+      "Light interception" = "black",
       "Measured light interception" = "green4",
-      "Attainable yield (simulated)"= "grey53",
-      "Measured attainable yield"   = "black",
-      "Actual yield (simulated)"    = "black"
+      "Attainable yield (simulated)" = "grey53",
+      "Measured attainable yield" = "black",
+      "Actual yield (simulated)" = "black"
     )
   ) +
-
   labs(x = "Date", color = "Variables") +
-
   theme_classic() +
   theme(
     legend.position = "bottom",
@@ -209,13 +295,12 @@ ggplot(outputs, aes(x = as.Date(Date, format = "%m/%d/%Y"))) +
     strip.text = element_text(face = "bold")
   ) +
   guides(color = guide_legend(ncol = 3))
-
 ```
 
 ## 🦠 Step 2 — Calibrating disease on the susceptible variety (Sids12)
 
 We now keep the calibrated crop parameters fixed, and calibrate the epidemiology of yellow rust using Sids12.
-We want to reproduce the observed disease progress curves without over-fitting yield damage. 
+We want to reproduce the observed disease progress curves without over-fitting yield damage.
 
 To avoid overparameterization of the damage mechanisms, we:
 
@@ -224,8 +309,13 @@ To avoid overparameterization of the damage mechanisms, we:
 
 This ensures the model matches observed disease severity while keeping yield linked to light interception.
 
+```{r}
+#| label: disease-calibration
+#| eval: true
+#| message: false
+#| warning: false
+#| results: "hide"
 
-```{r disease-calibration, eval=TRUE, message=FALSE, warning=FALSE, results='hide'}
 # --- use calibrated crop from Step 1 ---
 calibCrop <- df_crop$parameters$crop
 
@@ -235,43 +325,49 @@ calibDisease <- FraNchEstYN::diseaseParameters$yellow_rust
 # settings used in the article
 # damage mechanisms: assimilate sapping and senescence acceleration off,
 # RUE reduction and light stealing calibrated
-calibDisease$AssimilateSappersDamage$calibration     <- FALSE
-calibDisease$AssimilateSappersDamage$value           <- 0
+calibDisease$AssimilateSappersDamage$calibration <- FALSE
+calibDisease$AssimilateSappersDamage$value <- 0
 calibDisease$SenescenceAcceleratorDamage$calibration <- FALSE
-calibDisease$RUEreducerDamage$calibration            <- TRUE
-calibDisease$RUEreducerDamage$value                  <- 0
-calibDisease$RUEreducerDamage$max                    <- 1
-calibDisease$LightStealerDamage$min                  <- 0.1
-calibDisease$LightStealerDamage$max                  <- 0.5
+calibDisease$RUEreducerDamage$calibration <- TRUE
+calibDisease$RUEreducerDamage$value <- 0
+calibDisease$RUEreducerDamage$max <- 1
+calibDisease$LightStealerDamage$min <- 0.1
+calibDisease$LightStealerDamage$max <- 0.5
 
 # epidemiological parameters: fixed values and bounds
-calibDisease$Rain50Detachment$calibration  <- FALSE
+calibDisease$Rain50Detachment$calibration <- FALSE
 calibDisease$OuterInoculumShapeRelease$value <- 1
-calibDisease$DryCriticalInterruption$min   <- 16
-calibDisease$CyclePercentageOnset$min      <- 15
-calibDisease$WetnessDurationMinimum$min    <- 1
-calibDisease$WetnessDurationOptimum$min    <- 15
-calibDisease$WetnessDurationOptimum$max    <- 24
-calibDisease$RelativeHumidityCritical$min  <- 45
-calibDisease$HydroThermalTimeOnset$max     <- 50
-calibDisease$PathogenSpread$min            <- 0.35
+calibDisease$DryCriticalInterruption$min <- 16
+calibDisease$CyclePercentageOnset$min <- 15
+calibDisease$WetnessDurationMinimum$min <- 1
+calibDisease$WetnessDurationOptimum$min <- 15
+calibDisease$WetnessDurationOptimum$max <- 24
+calibDisease$RelativeHumidityCritical$min <- 45
+calibDisease$HydroThermalTimeOnset$max <- 50
+calibDisease$PathogenSpread$min <- 0.35
 
 # --- run disease calibration ---
 dfDisease <- FraNchEstYN::franchestyn(
-  weather_data      = weather_data,
-  management_data   = management_data,
-  reference_data    = thisReference_egypt,
-  cropParameters    = calibCrop,
+  weather_data = weather_data,
+  management_data = management_data,
+  reference_data = thisReference_egypt,
+  cropParameters = calibCrop,
   diseaseParameters = calibDisease,
-  calibration       = "disease",
-  start_end         = c(2012, 2015),
-  iterations        = 999
+  calibration = "disease",
+  start_end = c(2012, 2015),
+  iterations = 999
 )
-
 ```
+
 The output chart overlays simulated vs observed disease severity, canopy states, and actual yield.
 
-```{r disease-calibration-chart, eval=TRUE, echo=F, message=FALSE, warning=FALSE, fig.alt="Simulated and observed yellow rust severity, canopy light interception and yield for cultivar Sids12 in Sharkiya, Egypt, after disease calibration"}
+```{r, echo=F}
+#| label: disease-calibration-chart
+#| eval: true
+#| message: false
+#| warning: false
+#| fig-alt: "Simulated and observed yellow rust severity, canopy light interception and yield for cultivar Sids12 in Sharkiya, Egypt, after disease calibration"
+
 outputs_df <- dfDisease$outputs$simulation
 
 ggplot(outputs_df, aes(x = as.Date(Date, format = "%m/%d/%Y"))) +
@@ -279,30 +375,60 @@ ggplot(outputs_df, aes(x = as.Date(Date, format = "%m/%d/%Y"))) +
   geom_area(aes(y = Dead, fill = "Dead"), alpha = .5) +
   geom_area(aes(y = Sporulating, fill = "Sporulating"), alpha = .3) +
   geom_area(aes(y = Latent, fill = "Latent"), alpha = .8) +
-
-  geom_line(aes(y = LightInterception, color = "Light interception"), size = 0.8) +
-  geom_line(aes(y = Susceptible, color = "Susceptible canopy"), size = 0.5, linetype = 2) +
-  geom_line(aes(y = LightIntHealthy, color = "Healthy light interception"), size = 1) +
-  geom_point(aes(y = LightInterceptionRef, color = "Measured light interception"), shape = 4) +
+  geom_line(
+    aes(y = LightInterception, color = "Light interception"),
+    size = 0.8
+  ) +
+  geom_line(
+    aes(y = Susceptible, color = "Susceptible canopy"),
+    size = 0.5,
+    linetype = 2
+  ) +
+  geom_line(
+    aes(y = LightIntHealthy, color = "Healthy light interception"),
+    size = 1
+  ) +
+  geom_point(
+    aes(y = LightInterceptionRef, color = "Measured light interception"),
+    shape = 4
+  ) +
 
   # --- disease severity ---
   geom_line(aes(y = DiseaseSeverity, color = "Disease severity"), size = 1) +
-  geom_point(aes(y = as.numeric(DiseaseSeverityRef), color = "Measured disease severity"),
-             shape = 21, size = 2) +
+  geom_point(
+    aes(
+      y = as.numeric(DiseaseSeverityRef),
+      color = "Measured disease severity"
+    ),
+    shape = 21,
+    size = 2
+  ) +
 
   # --- yield with secondary axis ---
-  geom_line(aes(y = YieldAttainable/6000, color = "Attainable yield (simulated)"), size = 1) +
-  geom_point(aes(y = YieldRef/6000, color = "Measured attainable yield"),
-             shape = 21, fill = "grey54", size = 2.5) +
-  geom_line(aes(y = YieldActual/6000, color = "Actual yield (simulated)"), size = .6) +
-  geom_point(aes(y = YieldActualRef/6000, color = "Measured actual yield"), size = 2.5) +
-
+  geom_line(
+    aes(y = YieldAttainable / 6000, color = "Attainable yield (simulated)"),
+    size = 1
+  ) +
+  geom_point(
+    aes(y = YieldRef / 6000, color = "Measured attainable yield"),
+    shape = 21,
+    fill = "grey54",
+    size = 2.5
+  ) +
+  geom_line(
+    aes(y = YieldActual / 6000, color = "Actual yield (simulated)"),
+    size = .6
+  ) +
+  geom_point(
+    aes(y = YieldActualRef / 6000, color = "Measured actual yield"),
+    size = 2.5
+  ) +
   facet_wrap(Variety ~ GrowingSeason, scales = "free_x", ncol = 7) +
 
   # --- dual y-axis ---
   scale_y_continuous(
     name = "Disease severity / Canopy states (proportion)",
-    sec.axis = sec_axis(~.*6000, name = "Yield (kg/ha)")
+    sec.axis = sec_axis(~ . * 6000, name = "Yield (kg/ha)")
   ) +
   scale_x_date(date_breaks = "30 days", date_labels = "%b %d") +
 
@@ -314,21 +440,19 @@ ggplot(outputs_df, aes(x = as.Date(Date, format = "%m/%d/%Y"))) +
   scale_color_manual(
     name = "Variables",
     values = c(
-      "Light interception"          = "black",
-      "Susceptible canopy"          = "black",
-      "Healthy light interception"  = "green4",
+      "Light interception" = "black",
+      "Susceptible canopy" = "black",
+      "Healthy light interception" = "green4",
       "Measured light interception" = "green4",
-      "Disease severity"            = "blue",
-      "Measured disease severity"   = "blue",
-      "Attainable yield (simulated)"= "grey53",
-      "Measured attainable yield"   = "black",
-      "Actual yield (simulated)"    = "black",
-      "Measured actual yield"       = "black"
+      "Disease severity" = "blue",
+      "Measured disease severity" = "blue",
+      "Attainable yield (simulated)" = "grey53",
+      "Measured attainable yield" = "black",
+      "Actual yield (simulated)" = "black",
+      "Measured actual yield" = "black"
     )
   ) +
-
   labs(x = "Date", fill = "Canopy states", color = "Variables") +
-
   theme_classic() +
   theme(
     legend.position = "bottom",
@@ -347,7 +471,6 @@ ggplot(outputs_df, aes(x = as.Date(Date, format = "%m/%d/%Y"))) +
     fill = guide_legend(ncol = 3),
     color = guide_legend(ncol = 3)
   )
-
 ```
 
 ## 🌾 Step 3 — Extending to multiple varieties
@@ -362,18 +485,28 @@ Finally, we extend calibration to all wheat varieties in the dataset.
 
 This allows varietal comparisons while keeping the disease model unchanged.
 
-```{r variety-calibration, eval=TRUE, message=FALSE, warning=FALSE, results='hide'}
-#0. take the calibrated disease parameters
-calibDisease<-dfDisease$parameters$disease
+```{r}
+#| label: variety-calibration
+#| eval: true
+#| message: false
+#| warning: false
+#| results: "hide"
+
+# 0. take the calibrated disease parameters
+calibDisease <- dfDisease$parameters$disease
 
 # 1. disable all calibration first
 calibDisease <- FraNchEstYN::disable_all_calibration(calibDisease)
-calibCrop    <- FraNchEstYN::disable_all_calibration(calibCrop)
+calibCrop <- FraNchEstYN::disable_all_calibration(calibCrop)
 
 # 2. enable calibration only for RUE and varietal resistance
-calibCrop <- enable_calibration(calibCrop,
-                                keys = c("RadiationUseEfficiency",
-                                         "VarietalResistance"))
+calibCrop <- enable_calibration(
+  calibCrop,
+  keys = c(
+    "RadiationUseEfficiency",
+    "VarietalResistance"
+  )
+)
 
 # containers for results
 all_outputs <- list()
@@ -384,18 +517,20 @@ for (var in unique(reference_egypt$variety)) {
   thisReference_data <- reference_egypt %>% filter(variety == var)
 
   res <- FraNchEstYN::franchestyn(
-    weather_data      = weather_data,
-    management_data   = management_data,
-    reference_data    = thisReference_data,
-    cropParameters    = calibCrop,
+    weather_data = weather_data,
+    management_data = management_data,
+    reference_data = thisReference_data,
+    cropParameters = calibCrop,
     diseaseParameters = calibDisease,
-    calibration       = "all",
-    start_end         = c(2012, 2015),
-    iterations        = 999
+    calibration = "all",
+    start_end = c(2012, 2015),
+    iterations = 999
   )
 
   # --- extract outputs only if simulation slot exists ---
-  if (!is.null(res$outputs$simulation) && is.data.frame(res$outputs$simulation)) {
+  if (
+    !is.null(res$outputs$simulation) && is.data.frame(res$outputs$simulation)
+  ) {
     out_df <- res$outputs$simulation %>% mutate(Variety = var)
     all_outputs[[var]] <- out_df
   }
@@ -406,41 +541,78 @@ outputs_df <- if (length(all_outputs)) bind_rows(all_outputs) else tibble()
 
 # bind final results
 outputs_df <- bind_rows(all_outputs)
-
 ```
 
 We display results in an interactive Plotly chart, enabling zooming, tooltips, and toggling of variables for clearer interpretation.
 
-```{r variety-calibration-chart, eval=TRUE, echo=F, message=FALSE, warning=FALSE,fig.width = 10, fig.height = 7, fig.alt="Simulated and observed yellow rust severity and yield for seven wheat cultivars in Sharkiya, Egypt, by growing season"}
+```{r, echo=F}
+#| label: variety-calibration-chart
+#| eval: true
+#| message: false
+#| warning: false
+#| fig-width: 10
+#| fig-height: 7
+#| fig-alt: "Simulated and observed yellow rust severity and yield for seven wheat cultivars in Sharkiya, Egypt, by growing season"
+
 ggplot(outputs_df, aes(x = as.Date(Date, format = "%m/%d/%Y"))) +
   # --- canopy & disease states ---
   geom_area(aes(y = Dead, fill = "Dead"), alpha = .5) +
   geom_area(aes(y = Sporulating, fill = "Sporulating"), alpha = .3) +
   geom_area(aes(y = Latent, fill = "Latent"), alpha = .8) +
-
-  geom_line(aes(y = LightInterception, color = "Light interception"), size = 0.8) +
-  geom_line(aes(y = Susceptible, color = "Susceptible canopy"), size = 0.5, linetype = 2) +
-  geom_line(aes(y = LightIntHealthy, color = "Healthy light interception"), size = 1) +
-  geom_point(aes(y = LightInterceptionRef, color = "Measured light interception"), shape = 4) +
+  geom_line(
+    aes(y = LightInterception, color = "Light interception"),
+    size = 0.8
+  ) +
+  geom_line(
+    aes(y = Susceptible, color = "Susceptible canopy"),
+    size = 0.5,
+    linetype = 2
+  ) +
+  geom_line(
+    aes(y = LightIntHealthy, color = "Healthy light interception"),
+    size = 1
+  ) +
+  geom_point(
+    aes(y = LightInterceptionRef, color = "Measured light interception"),
+    shape = 4
+  ) +
 
   # --- disease severity ---
   geom_line(aes(y = DiseaseSeverity, color = "Disease severity"), size = 1) +
-  geom_point(aes(y = as.numeric(DiseaseSeverityRef), color = "Measured disease severity"),
-             shape = 21, size = 2) +
+  geom_point(
+    aes(
+      y = as.numeric(DiseaseSeverityRef),
+      color = "Measured disease severity"
+    ),
+    shape = 21,
+    size = 2
+  ) +
 
   # --- yield with secondary axis ---
-  geom_line(aes(y = YieldAttainable/6000, color = "Attainable yield (simulated)"), size = 1) +
-  geom_point(aes(y = YieldRef/6000, color = "Measured attainable yield"),
-             shape = 21, fill = "grey54", size = 2.5) +
-  geom_line(aes(y = YieldActual/6000, color = "Actual yield (simulated)"), size = .6) +
-  geom_point(aes(y = YieldActualRef/6000, color = "Measured actual yield"), size = 2.5) +
-
+  geom_line(
+    aes(y = YieldAttainable / 6000, color = "Attainable yield (simulated)"),
+    size = 1
+  ) +
+  geom_point(
+    aes(y = YieldRef / 6000, color = "Measured attainable yield"),
+    shape = 21,
+    fill = "grey54",
+    size = 2.5
+  ) +
+  geom_line(
+    aes(y = YieldActual / 6000, color = "Actual yield (simulated)"),
+    size = .6
+  ) +
+  geom_point(
+    aes(y = YieldActualRef / 6000, color = "Measured actual yield"),
+    size = 2.5
+  ) +
   facet_wrap(Variety ~ GrowingSeason, scales = "free_x", ncol = 7) +
 
   # --- dual y-axis ---
   scale_y_continuous(
     name = "Disease severity / Canopy states (proportion)",
-    sec.axis = sec_axis(~.*6000, name = "Yield (kg/ha)")
+    sec.axis = sec_axis(~ . * 6000, name = "Yield (kg/ha)")
   ) +
   scale_x_date(date_breaks = "30 days", date_labels = "%b %d") +
 
@@ -452,21 +624,19 @@ ggplot(outputs_df, aes(x = as.Date(Date, format = "%m/%d/%Y"))) +
   scale_color_manual(
     name = "Variables",
     values = c(
-      "Light interception"          = "black",
-      "Susceptible canopy"          = "black",
-      "Healthy light interception"  = "green4",
+      "Light interception" = "black",
+      "Susceptible canopy" = "black",
+      "Healthy light interception" = "green4",
       "Measured light interception" = "green4",
-      "Disease severity"            = "blue",
-      "Measured disease severity"   = "blue",
-      "Attainable yield (simulated)"= "grey53",
-      "Measured attainable yield"   = "black",
-      "Actual yield (simulated)"    = "black",
-      "Measured actual yield"       = "black"
+      "Disease severity" = "blue",
+      "Measured disease severity" = "blue",
+      "Attainable yield (simulated)" = "grey53",
+      "Measured attainable yield" = "black",
+      "Actual yield (simulated)" = "black",
+      "Measured actual yield" = "black"
     )
   ) +
-
   labs(x = "Date", fill = "Canopy states", color = "Variables") +
-
   theme_classic() +
   theme(
     legend.position = "bottom",
@@ -485,10 +655,7 @@ ggplot(outputs_df, aes(x = as.Date(Date, format = "%m/%d/%Y"))) +
     fill = guide_legend(ncol = 3),
     color = guide_legend(ncol = 3)
   )
-
-
 ```
-
 
 ## 📝 Key take-home messages
 
@@ -500,10 +667,10 @@ ggplot(outputs_df, aes(x = as.Date(Date, format = "%m/%d/%Y"))) +
 
 - The framework outputs diagnostics, parameter estimates, and simulations in a structured way, ready for analysis and visualization (including interactive Plotly plots).
 
-
 ## 🚀 Next steps
 
-This vignette showed how to calibrate wheat yield losses from yellow rust in Egypt using bundled datasets. From here, you might want to:
+This vignette showed how to calibrate wheat yield losses from yellow rust in Egypt using bundled datasets.
+From here, you might want to:
 
 🌎 Apply to other environments: swap in weather and reference datasets from different sites or years.
 
