@@ -7,7 +7,6 @@
 inst/doc
 /doc/
 Meta
-man
 docs
 pkgdown
 shiny
