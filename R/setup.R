@@ -11,18 +11,23 @@
 #'
 #' If no .NET 8 runtime is found on Linux or macOS, the function can download
 #' Microsoft's official `dotnet-install.sh` script
-#' (<https://dot.net/v1/dotnet-install.sh>) and run it with
+#' (<https://dot.net/v1/dotnet-install.sh>) over HTTPS and run it with
 #' `--channel 8.0 --runtime dotnet --install-dir ~/.dotnet`. This needs `bash`
-#' and an Internet connection, does not need administrator rights and only
-#' writes to `~/.dotnet`. It does not install the operating-system libraries
-#' that .NET depends on; if the installer reports that any are missing, see
+#' and an Internet connection and does not need administrator rights. The
+#' runtime is installed only into `~/.dotnet`; the installer script itself is
+#' kept in a temporary file that is deleted afterwards. It does not install the
+#' operating-system libraries that .NET depends on; if the installer reports
+#' that any are missing, see
 #' <https://learn.microsoft.com/dotnet/core/install/linux>.
 #'
 #' Nothing is downloaded or installed without your consent: in an interactive
 #' session you are asked first, and in a non-interactive session the function
-#' only installs when you call it with `install = TRUE`. On Windows the
-#' function only checks, because the .NET 8 runtime there is installed with
-#' Microsoft's installer from <https://dotnet.microsoft.com/download/dotnet/8.0>.
+#' only installs when you call it with `install = TRUE`. The function refuses to
+#' install when R is running as the `root` user, so that a per-user runtime is
+#' never placed in root's home directory; run it as a regular user, or install
+#' the runtime system-wide. On Windows the function only checks, because the
+#' .NET 8 runtime there is installed with Microsoft's installer from
+#' <https://dotnet.microsoft.com/download/dotnet/8.0>.
 #'
 #' Microsoft ended support for .NET 8 on 10 November 2026. FraNchEstYN
 #' currently requires it, and a newer runtime on its own is not accepted.
@@ -68,10 +73,21 @@ franchestyn_setup <- function(install = NA) {
   }
 
   # An explicit override is authoritative: never install somewhere else.
-  overridden <- nzchar(Sys.getenv("FRANCHESTYN_DOTNET", unset = "")) ||
-    isTRUE(nzchar(getOption("franchestyn.dotnet", default = "")))
-  if (overridden || .franchestyn_is_windows() || isFALSE(install)) {
-    stop(conditionMessage(found), call. = FALSE)
+  if (
+    .franchestyn_dotnet_overridden() ||
+      .franchestyn_is_windows() ||
+      isFALSE(install)
+  ) {
+    stop(found)
+  }
+
+  if (.franchestyn_is_root()) {
+    stop(
+      "Refusing to install .NET as the root user. Run franchestyn_setup() ",
+      "as a regular user, or install it system-wide. ",
+      .franchestyn_dotnet_manual(major),
+      call. = FALSE
+    )
   }
 
   if (is.na(install)) {
@@ -95,7 +111,9 @@ franchestyn_setup <- function(install = NA) {
       "). No administrator rights are needed.\n",
       "Note: Microsoft ended support for .NET ",
       major,
-      " on 10 November 2026, but FraNchEstYN currently requires it."
+      " on ",
+      .franchestyn_dotnet_eol,
+      ", but FraNchEstYN currently requires it."
     )
     if (
       !isTRUE(.franchestyn_ask(paste0(
@@ -120,25 +138,54 @@ franchestyn_setup <- function(install = NA) {
   invisible(path)
 }
 
-# The only .NET major version the backend accepts.
+# The only .NET major version the backend accepts, and when Microsoft ended
+# support for it.
 .franchestyn_dotnet_major <- 8L
+.franchestyn_dotnet_eol <- "10 November 2026"
 
 .franchestyn_dotnet_install_dir <- function() {
   file.path(path.expand("~"), ".dotnet")
 }
 
 # `options(franchestyn.dotnet_install_url)` exists for the package's own tests
-# (it lets them use a local file instead of the Internet).
+# (it lets them use a local file instead of the Internet). Outside the tests
+# the URL must be https, so the script that is passed to bash is always
+# fetched over an authenticated, encrypted connection.
 .franchestyn_dotnet_install_url <- function() {
-  getOption(
+  url <- getOption(
     "franchestyn.dotnet_install_url",
     "https://dot.net/v1/dotnet-install.sh"
   )
+  if (
+    !startsWith(url, "https://") && !identical(Sys.getenv("TESTTHAT"), "true")
+  ) {
+    stop("The .NET installer URL must start with https://.", call. = FALSE)
+  }
+  url
+}
+
+.franchestyn_dotnet_manual <- function(major) {
+  paste0(
+    "Install .NET ",
+    major,
+    " manually: https://dotnet.microsoft.com/download/dotnet/",
+    major,
+    ".0"
+  )
+}
+
+# TRUE when the user has pointed FraNchEstYN at a specific dotnet.
+.franchestyn_dotnet_overridden <- function() {
+  nzchar(Sys.getenv("FRANCHESTYN_DOTNET", unset = "")) ||
+    nzchar(getOption("franchestyn.dotnet", default = ""))
 }
 
 # Thin wrappers so tests can replace the parts that depend on the session.
 .franchestyn_is_windows <- function() .Platform$OS.type == "windows"
 .franchestyn_is_interactive <- function() interactive()
+.franchestyn_is_root <- function() {
+  isTRUE(Sys.info()[["effective_user"]] == "root")
+}
 .franchestyn_ask <- function(prompt) utils::askYesNo(prompt, default = FALSE)
 
 # Install the .NET runtime with Microsoft's dotnet-install.sh (internal)
@@ -146,21 +193,14 @@ franchestyn_setup <- function(install = NA) {
 # @param dir Install directory (created if needed).
 # @param major .NET major version; the channel is `<major>.0`.
 # @return Path to the installed `dotnet` executable. Errors if the script
-#   cannot be downloaded, fails, or does not leave a usable runtime.
-.franchestyn_install_dotnet <- function(
-  dir,
-  major = .franchestyn_dotnet_major
-) {
-  install_url <- .franchestyn_dotnet_install_url()
+#   cannot be downloaded, fails, times out, or does not leave a usable runtime.
+.franchestyn_install_dotnet <- function(dir, major) {
+  url <- .franchestyn_dotnet_install_url()
   bash <- unname(Sys.which("bash"))
   if (!nzchar(bash)) {
     stop(
       "Installing .NET needs 'bash', which was not found. ",
-      "Install .NET ",
-      major,
-      " manually: https://dotnet.microsoft.com/download/dotnet/",
-      major,
-      ".0",
+      .franchestyn_dotnet_manual(major),
       call. = FALSE
     )
   }
@@ -168,42 +208,45 @@ franchestyn_setup <- function(install = NA) {
   script <- tempfile("dotnet-install-", fileext = ".sh")
   on.exit(unlink(script), add = TRUE)
 
-  downloaded <- tryCatch(
+  # Warnings are caught too, because download.file() reports an HTTP or TLS
+  # failure as a warning. The "#!" test only rejects an HTML error page; it is
+  # a sanity check, not an integrity check (that rests on HTTPS).
+  problem <- tryCatch(
     {
-      suppressWarnings(utils::download.file(
-        install_url,
+      utils::download.file(
+        url,
         script,
         mode = "wb",
-        quiet = TRUE
-      ))
-      TRUE
+        quiet = TRUE,
+        method = "libcurl"
+      )
+      first_line <- readLines(script, n = 1L, warn = FALSE)
+      if (!length(first_line) || !startsWith(first_line, "#!")) {
+        "the response was not a script"
+      }
     },
-    error = function(e) FALSE
+    error = function(e) conditionMessage(e),
+    warning = function(w) conditionMessage(w)
   )
-  first_line <- if (
-    downloaded && file.exists(script) && file.size(script) > 0
-  ) {
-    readLines(script, n = 1L, warn = FALSE)
-  } else {
-    character()
-  }
-  if (!length(first_line) || !startsWith(first_line, "#!")) {
+  if (!is.null(problem)) {
     stop(
       "Could not download the installer script from ",
-      install_url,
-      " (no connection, a proxy or firewall, or the response was not a script). ",
-      "Install .NET ",
-      major,
-      " manually: https://dotnet.microsoft.com/download/dotnet/",
-      major,
-      ".0",
+      url,
+      ": ",
+      problem,
+      ". ",
+      .franchestyn_dotnet_manual(major),
       call. = FALSE
     )
   }
 
-  res <- processx::run(
-    command = bash,
-    args = c(
+  # system2() runs through the shell. It quotes the command itself but not the
+  # arguments, so only the arguments are passed through shQuote(). A timeout
+  # makes it return status 124 (and warn, which we replace with our own
+  # message below).
+  status <- suppressWarnings(system2(
+    bash,
+    shQuote(c(
       script,
       "--channel",
       sprintf("%d.0", major),
@@ -211,15 +254,16 @@ franchestyn_setup <- function(install = NA) {
       "dotnet",
       "--install-dir",
       dir
-    ),
-    echo = TRUE,
-    error_on_status = FALSE,
+    )),
     timeout = 1800
-  )
-  if (!identical(res$status, 0L)) {
+  ))
+  if (status == 124L) {
+    stop("The .NET installer timed out after 30 minutes.", call. = FALSE)
+  }
+  if (status != 0L) {
     stop(
       "The .NET installer failed (exit status ",
-      res$status,
+      status,
       "); see its output above. On Linux this is often a missing system ",
       "library, see https://learn.microsoft.com/dotnet/core/install/linux",
       call. = FALSE

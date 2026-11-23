@@ -29,18 +29,23 @@ used), then \code{DOTNET_ROOT}, \code{PATH} and the usual install locations.
 
 If no .NET 8 runtime is found on Linux or macOS, the function can download
 Microsoft's official \code{dotnet-install.sh} script
-(\url{https://dot.net/v1/dotnet-install.sh}) and run it with
+(\url{https://dot.net/v1/dotnet-install.sh}) over HTTPS and run it with
 \verb{--channel 8.0 --runtime dotnet --install-dir ~/.dotnet}. This needs \code{bash}
-and an Internet connection, does not need administrator rights and only
-writes to \verb{~/.dotnet}. It does not install the operating-system libraries
-that .NET depends on; if the installer reports that any are missing, see
+and an Internet connection and does not need administrator rights. The
+runtime is installed only into \verb{~/.dotnet}; the installer script itself is
+kept in a temporary file that is deleted afterwards. It does not install the
+operating-system libraries that .NET depends on; if the installer reports
+that any are missing, see
 \url{https://learn.microsoft.com/dotnet/core/install/linux}.
 
 Nothing is downloaded or installed without your consent: in an interactive
 session you are asked first, and in a non-interactive session the function
-only installs when you call it with \code{install = TRUE}. On Windows the
-function only checks, because the .NET 8 runtime there is installed with
-Microsoft's installer from \url{https://dotnet.microsoft.com/download/dotnet/8.0}.
+only installs when you call it with \code{install = TRUE}. The function refuses to
+install when R is running as the \code{root} user, so that a per-user runtime is
+never placed in root's home directory; run it as a regular user, or install
+the runtime system-wide. On Windows the function only checks, because the
+.NET 8 runtime there is installed with Microsoft's installer from
+\url{https://dotnet.microsoft.com/download/dotnet/8.0}.
 
 Microsoft ended support for .NET 8 on 10 November 2026. FraNchEstYN
 currently requires it, and a newer runtime on its own is not accepted.
